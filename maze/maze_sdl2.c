@@ -1,6 +1,6 @@
 // maze_sdl2.c
 // Simple SDL2 maze: generate (DFS backtracker), draw, move player to goal.
-// Controls: Arrow keys, WASD, or Joystick. R = regenerate. Esc = quit.
+// Controls: Arrow keys, WASD, or analog stick. R = regenerate. Esc = quit.
 // Outputs JSON telemetry on joystick-triggered moves.
 
 #include <SDL2/SDL.h>
@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
+#include <uuid/uuid.h>
 
 #define MAZE_W 21   // number of cells horizontally
 #define MAZE_H 15   // number of cells vertically
@@ -194,17 +195,10 @@ static void regenerate(int* px, int* py, SDL_Window* win) {
   SDL_SetWindowTitle(win, "SDL2 Maze - Reach the green goal (R to regenerate)");
 }
 
-// Generate a pseudo-random UUID v4 string
 static void generate_session_id(void) {
-  snprintf(g_session_id, sizeof(g_session_id),
-    "%08x-%04x-%04x-%04x-%04x%08x",
-    (unsigned)(rand() & 0xFFFFFFFF),
-    (unsigned)(rand() & 0xFFFF),
-    (unsigned)((rand() & 0x0FFF) | 0x4000), // version 4
-    (unsigned)((rand() & 0x3FFF) | 0x8000), // variant 1
-    (unsigned)(rand() & 0xFFFF),
-    (unsigned)(rand() & 0xFFFFFFFF)
-  );
+  uuid_t uuid;
+  uuid_generate(uuid);
+  uuid_unparse_lower(uuid, g_session_id);
 }
 
 // Get current timestamp in ISO 8601 format (UTC)
@@ -235,6 +229,51 @@ static void output_json_telemetry(int px, int py, bool goal_reached) {
   fflush(stdout);
 }
 
+// Handle joystick/controller axis input + emit telemetry on move
+// Returns true after goal reached
+static bool handle_joystick_axis(int axis, Sint16 value, int* px, int* py, bool* joy_moved_x, bool* joy_moved_y, bool* won, SDL_Window* win) {
+  bool moved = false;
+
+  // X-axis (axis 0 for joystick, SDL_CONTROLLER_AXIS_LEFTX for controller)
+  if (axis == 0) {
+    if (value < -JOYSTICK_DEADZONE && !*joy_moved_x) {
+      moved = try_move(px, py, -1, 0);
+      *joy_moved_x = true;
+    } else if (value > JOYSTICK_DEADZONE && !*joy_moved_x) {
+      moved = try_move(px, py, 1, 0);
+      *joy_moved_x = true;
+    } else if (value > -JOYSTICK_DEADZONE && value < JOYSTICK_DEADZONE) {
+      *joy_moved_x = false;
+    }
+  }
+
+  // Y-axis (axis 1 for joystick, SDL_CONTROLLER_AXIS_LEFTY for controller)
+  if (axis == 1) {
+    if (value < -JOYSTICK_DEADZONE && !*joy_moved_y) {
+      moved = try_move(px, py, 0, -1);
+      *joy_moved_y = true;
+    } else if (value > JOYSTICK_DEADZONE && !*joy_moved_y) {
+      moved = try_move(px, py, 0, 1);
+      *joy_moved_y = true;
+    } else if (value > -JOYSTICK_DEADZONE && value < JOYSTICK_DEADZONE) {
+      *joy_moved_y = false;
+    }
+  }
+
+  if (moved) {
+    g_move_sequence++;
+    bool goal_reached = (*px == MAZE_W - 1 && *py == MAZE_H - 1);
+    output_json_telemetry(*px, *py, goal_reached);
+
+    if (goal_reached) {
+      *won = true;
+      SDL_SetWindowTitle(win, "You win! Press R to regenerate, Esc to quit");
+    }
+  }
+
+  return moved;
+}
+
 int main(int argc, char** argv) {
   (void)argc; (void)argv;
   srand((unsigned)time(NULL));
@@ -242,17 +281,53 @@ int main(int argc, char** argv) {
   // Generate session ID for telemetry
   generate_session_id();
 
-  if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK) != 0) {
+  // For testing w/ PS5 controller
+  SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5, "1");
+  SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4, "1");
+
+  // Initialize both VIDEO and JOYSTICK + GAMECONTROLLER subsystems
+  if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) != 0) {
     fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
     return 1;
   }
 
-  // Open joystick if available
+  // Enable joystick + game controller events
+  SDL_JoystickEventState(SDL_ENABLE);
+  SDL_GameControllerEventState(SDL_ENABLE);
+
+  // Try to load controller mappings from gamecontrollerdb.txt if present (not using this right now)
+  int mappings_added = SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt");
+  if (mappings_added > 0) {
+    printf("Loaded %d controller mapping(s) from gamecontrollerdb.txt\n", mappings_added);
+  }
+
+  // Print detected joysticks for debugging
+  printf("Detected %d joystick(s):\n", SDL_NumJoysticks());
+  for (int i = 0; i < SDL_NumJoysticks(); i++) {
+    const char* name = SDL_JoystickNameForIndex(i);
+    bool is_gc = SDL_IsGameController(i);
+    printf("  [%d] %s (GameController: %s)\n", i, name ? name : "Unknown", is_gc ? "Yes" : "No");
+  }
+
+  // Open game controller if available
+  SDL_GameController* controller = NULL;
+  for (int i = 0; i < SDL_NumJoysticks(); i++) {
+    if (SDL_IsGameController(i)) {
+      controller = SDL_GameControllerOpen(i);
+      if (controller) {
+        printf("Controller connected: %s\n", SDL_GameControllerName(controller));
+        break;
+      }
+    }
+  }
+
+  // If no GameController recognized, fall back to raw joystick (will likely need this for Game HAT)
   SDL_Joystick* joystick = NULL;
-  if (SDL_NumJoysticks() > 0) {
+  if (!controller && SDL_NumJoysticks() > 0) {
     joystick = SDL_JoystickOpen(0);
     if (joystick) {
-      printf("Joystick connected: %s\n", SDL_JoystickName(joystick));
+      printf("Opened raw joystick: %s (axes: %d)\n",
+             SDL_JoystickName(joystick), SDL_JoystickNumAxes(joystick));
     }
   }
 
@@ -267,7 +342,7 @@ int main(int argc, char** argv) {
   );
   if (!win) {
     fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
-    if (joystick) SDL_JoystickClose(joystick);
+    if (controller) SDL_GameControllerClose(controller);
     SDL_Quit();
     return 1;
   }
@@ -275,7 +350,7 @@ int main(int argc, char** argv) {
   SDL_Renderer* r = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
   if (!r) {
     fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError());
-    if (joystick) SDL_JoystickClose(joystick);
+    if (controller) SDL_GameControllerClose(controller);
     SDL_DestroyWindow(win);
     SDL_Quit();
     return 1;
@@ -319,49 +394,17 @@ int main(int argc, char** argv) {
         }
       }
 
-      // Handle joystick axis motion (analog stick)
-      if (e.type == SDL_JOYAXISMOTION && !won) {
-        Sint16 value = e.jaxis.value;
-        Uint8 axis = e.jaxis.axis;
-        bool moved = false;
-
-        // X-axis (typically axis 0): left/right
-        if (axis == 0) {
-          if (value < -JOYSTICK_DEADZONE && !joy_moved_x) {
-            moved = try_move(&px, &py, -1, 0);
-            joy_moved_x = true;
-          } else if (value > JOYSTICK_DEADZONE && !joy_moved_x) {
-            moved = try_move(&px, &py, 1, 0);
-            joy_moved_x = true;
-          } else if (value > -JOYSTICK_DEADZONE && value < JOYSTICK_DEADZONE) {
-            joy_moved_x = false;
-          }
+      // Handle game controller axis motion (recognized controllers)
+      if (e.type == SDL_CONTROLLERAXISMOTION && !won) {
+        int axis = (e.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX) ? 0 : (e.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY) ? 1 : -1;
+        if (axis >= 0) {
+          handle_joystick_axis(axis, e.caxis.value, &px, &py, &joy_moved_x, &joy_moved_y, &won, win);
         }
+      }
 
-        // Y-axis (typically axis 1): up/down
-        if (axis == 1) {
-          if (value < -JOYSTICK_DEADZONE && !joy_moved_y) {
-            moved = try_move(&px, &py, 0, -1);
-            joy_moved_y = true;
-          } else if (value > JOYSTICK_DEADZONE && !joy_moved_y) {
-            moved = try_move(&px, &py, 0, 1);
-            joy_moved_y = true;
-          } else if (value > -JOYSTICK_DEADZONE && value < JOYSTICK_DEADZONE) {
-            joy_moved_y = false;
-          }
-        }
-
-        // If a move occurred via joystick, output JSON telemetry
-        if (moved) {
-          g_move_sequence++;
-          bool goal_reached = (px == MAZE_W - 1 && py == MAZE_H - 1);
-          output_json_telemetry(px, py, goal_reached);
-
-          if (goal_reached) {
-            won = true;
-            SDL_SetWindowTitle(win, "You win! Press R to regenerate, Esc to quit");
-          }
-        }
+      // Fallback (raw joystick axis motion)
+      if (e.type == SDL_JOYAXISMOTION && !won && joystick) {
+        handle_joystick_axis(e.jaxis.axis, e.jaxis.value, &px, &py, &joy_moved_x, &joy_moved_y, &won, win);
       }
     }
 
@@ -371,6 +414,7 @@ int main(int argc, char** argv) {
     SDL_RenderPresent(r);
   }
 
+  if (controller) SDL_GameControllerClose(controller);
   if (joystick) SDL_JoystickClose(joystick);
   SDL_DestroyRenderer(r);
   SDL_DestroyWindow(win);
