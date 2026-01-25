@@ -1,6 +1,7 @@
 // maze_sdl2.c
 // Simple SDL2 maze: generate (DFS backtracker), draw, move player to goal.
-// Controls: Arrow keys or WASD. R = regenerate. Esc = quit.
+// Controls: Arrow keys, WASD, or Joystick. R = regenerate. Esc = quit.
+// Outputs JSON telemetry on joystick-triggered moves.
 
 #include <SDL2/SDL.h>
 #include <stdbool.h>
@@ -8,11 +9,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <string.h>
 
 #define MAZE_W 21   // number of cells horizontally
 #define MAZE_H 15   // number of cells vertically
 #define CELL   32   // pixels per cell
 #define PAD    16   // window padding around maze
+
+// Joystick dead zone threshold (0–32767 range)
+#define JOYSTICK_DEADZONE 8000
+
+// Session state for JSON telemetry
+static char g_session_id[40];
+static int  g_move_sequence = 0;
 
 // Wall bitmask for each cell
 enum { WALL_N = 1, WALL_E = 2, WALL_S = 4, WALL_W = 8 };
@@ -181,16 +190,70 @@ static void regenerate(int* px, int* py, SDL_Window* win) {
   maze_init();
   maze_generate(0, 0);
   *px = 0; *py = 0;
+  g_move_sequence = 0; // Reset move sequence on maze regeneration
   SDL_SetWindowTitle(win, "SDL2 Maze - Reach the green goal (R to regenerate)");
+}
+
+// Generate a pseudo-random UUID v4 string
+static void generate_session_id(void) {
+  snprintf(g_session_id, sizeof(g_session_id),
+    "%08x-%04x-%04x-%04x-%04x%08x",
+    (unsigned)(rand() & 0xFFFFFFFF),
+    (unsigned)(rand() & 0xFFFF),
+    (unsigned)((rand() & 0x0FFF) | 0x4000), // version 4
+    (unsigned)((rand() & 0x3FFF) | 0x8000), // variant 1
+    (unsigned)(rand() & 0xFFFF),
+    (unsigned)(rand() & 0xFFFFFFFF)
+  );
+}
+
+// Get current timestamp in ISO 8601 format (UTC)
+static void get_iso8601_timestamp(char* buf, size_t size) {
+  time_t now = time(NULL);
+  struct tm* gm = gmtime(&now);
+  strftime(buf, size, "%Y-%m-%dT%H:%M:%SZ", gm);
+}
+
+// Output JSON telemetry document for a joystick-triggered move
+static void output_json_telemetry(int px, int py, bool goal_reached) {
+  char timestamp[32];
+  get_iso8601_timestamp(timestamp, sizeof(timestamp));
+
+  printf("{\n");
+  printf("  \"session_id\": \"%s\",\n", g_session_id);
+  printf("  \"event_type\": \"player_move\",\n");
+  printf("  \"input\": {\n");
+  printf("    \"device\": \"joystick\",\n");
+  printf("    \"move_sequence\": %d\n", g_move_sequence);
+  printf("  },\n");
+  printf("  \"player\": {\n");
+  printf("    \"position\": { \"x\": %d, \"y\": %d }\n", px, py);
+  printf("  },\n");
+  printf("  \"goal_reached\": %s,\n", goal_reached ? "true" : "false");
+  printf("  \"timestamp\": \"%s\"\n", timestamp);
+  printf("}\n");
+  fflush(stdout);
 }
 
 int main(int argc, char** argv) {
   (void)argc; (void)argv;
   srand((unsigned)time(NULL));
 
-  if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+  // Generate session ID for telemetry
+  generate_session_id();
+
+  if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK) != 0) {
     fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
     return 1;
+  }
+
+  // Open joystick if available
+  SDL_Joystick* joystick = NULL;
+  if (SDL_NumJoysticks() > 0) {
+    joystick = SDL_JoystickOpen(0);
+    if (joystick) {
+      printf("Joystick connected: %s\n", SDL_JoystickName(joystick));
+    }
   }
 
   int win_w = PAD * 2 + MAZE_W * CELL;
@@ -204,6 +267,7 @@ int main(int argc, char** argv) {
   );
   if (!win) {
     fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
+    if (joystick) SDL_JoystickClose(joystick);
     SDL_Quit();
     return 1;
   }
@@ -211,6 +275,7 @@ int main(int argc, char** argv) {
   SDL_Renderer* r = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
   if (!r) {
     fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError());
+    if (joystick) SDL_JoystickClose(joystick);
     SDL_DestroyWindow(win);
     SDL_Quit();
     return 1;
@@ -221,6 +286,10 @@ int main(int argc, char** argv) {
 
   bool running = true;
   bool won = false;
+
+  // Joystick state tracking (for discrete-step movement)
+  bool joy_moved_x = false;
+  bool joy_moved_y = false;
 
   while (running) {
     SDL_Event e;
@@ -249,6 +318,51 @@ int main(int argc, char** argv) {
           }
         }
       }
+
+      // Handle joystick axis motion (analog stick)
+      if (e.type == SDL_JOYAXISMOTION && !won) {
+        Sint16 value = e.jaxis.value;
+        Uint8 axis = e.jaxis.axis;
+        bool moved = false;
+
+        // X-axis (typically axis 0): left/right
+        if (axis == 0) {
+          if (value < -JOYSTICK_DEADZONE && !joy_moved_x) {
+            moved = try_move(&px, &py, -1, 0);
+            joy_moved_x = true;
+          } else if (value > JOYSTICK_DEADZONE && !joy_moved_x) {
+            moved = try_move(&px, &py, 1, 0);
+            joy_moved_x = true;
+          } else if (value > -JOYSTICK_DEADZONE && value < JOYSTICK_DEADZONE) {
+            joy_moved_x = false;
+          }
+        }
+
+        // Y-axis (typically axis 1): up/down
+        if (axis == 1) {
+          if (value < -JOYSTICK_DEADZONE && !joy_moved_y) {
+            moved = try_move(&px, &py, 0, -1);
+            joy_moved_y = true;
+          } else if (value > JOYSTICK_DEADZONE && !joy_moved_y) {
+            moved = try_move(&px, &py, 0, 1);
+            joy_moved_y = true;
+          } else if (value > -JOYSTICK_DEADZONE && value < JOYSTICK_DEADZONE) {
+            joy_moved_y = false;
+          }
+        }
+
+        // If a move occurred via joystick, output JSON telemetry
+        if (moved) {
+          g_move_sequence++;
+          bool goal_reached = (px == MAZE_W - 1 && py == MAZE_H - 1);
+          output_json_telemetry(px, py, goal_reached);
+
+          if (goal_reached) {
+            won = true;
+            SDL_SetWindowTitle(win, "You win! Press R to regenerate, Esc to quit");
+          }
+        }
+      }
     }
 
     draw_maze(r);
@@ -257,6 +371,7 @@ int main(int argc, char** argv) {
     SDL_RenderPresent(r);
   }
 
+  if (joystick) SDL_JoystickClose(joystick);
   SDL_DestroyRenderer(r);
   SDL_DestroyWindow(win);
   SDL_Quit();
