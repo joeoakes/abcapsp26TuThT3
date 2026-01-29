@@ -1,7 +1,6 @@
 // maze_sdl2.c
 // Simple SDL2 maze: generate (DFS backtracker), draw, move player to goal.
 // Controls: Arrow keys, WASD, or analog stick. R = regenerate. Esc = quit.
-// Outputs JSON telemetry on joystick-triggered moves.
 
 #include <SDL2/SDL.h>
 #include <stdbool.h>
@@ -208,8 +207,7 @@ static void get_iso8601_timestamp(char* buf, size_t size) {
   strftime(buf, size, "%Y-%m-%dT%H:%M:%SZ", gm);
 }
 
-// Output JSON telemetry document for a joystick-triggered move
-static void output_json_telemetry(int px, int py, bool goal_reached) {
+static void output_json_telemetry(const char* device, int px, int py, bool goal_reached) {
   char timestamp[32];
   get_iso8601_timestamp(timestamp, sizeof(timestamp));
 
@@ -217,7 +215,7 @@ static void output_json_telemetry(int px, int py, bool goal_reached) {
   printf("  \"session_id\": \"%s\",\n", g_session_id);
   printf("  \"event_type\": \"player_move\",\n");
   printf("  \"input\": {\n");
-  printf("    \"device\": \"joystick\",\n");
+  printf("    \"device\": \"%s\",\n", device);
   printf("    \"move_sequence\": %d\n", g_move_sequence);
   printf("  },\n");
   printf("  \"player\": {\n");
@@ -263,7 +261,7 @@ static bool handle_joystick_axis(int axis, Sint16 value, int* px, int* py, bool*
   if (moved) {
     g_move_sequence++;
     bool goal_reached = (*px == MAZE_W - 1 && *py == MAZE_H - 1);
-    output_json_telemetry(*px, *py, goal_reached);
+    output_json_telemetry("joystick", *px, *py, goal_reached);
 
     if (goal_reached) {
       *won = true;
@@ -382,14 +380,21 @@ int main(int argc, char** argv) {
         }
 
         if (!won) {
-          if (k == SDLK_UP || k == SDLK_w)    try_move(&px, &py, 0, -1);
-          if (k == SDLK_RIGHT || k == SDLK_d) try_move(&px, &py, 1, 0);
-          if (k == SDLK_DOWN || k == SDLK_s)  try_move(&px, &py, 0, 1);
-          if (k == SDLK_LEFT || k == SDLK_a)  try_move(&px, &py, -1, 0);
+          bool moved = false;
+          if (k == SDLK_UP || k == SDLK_w)          moved = try_move(&px, &py, 0, -1);
+          else if (k == SDLK_RIGHT || k == SDLK_d)  moved = try_move(&px, &py, 1, 0);
+          else if (k == SDLK_DOWN || k == SDLK_s)   moved = try_move(&px, &py, 0, 1);
+          else if (k == SDLK_LEFT || k == SDLK_a)   moved = try_move(&px, &py, -1, 0);
 
-          if (px == MAZE_W - 1 && py == MAZE_H - 1) {
-            won = true;
-            SDL_SetWindowTitle(win, "You win! Press R to regenerate, Esc to quit");
+          if (moved) {
+            g_move_sequence++;
+            bool goal_reached = (px == MAZE_W - 1 && py == MAZE_H - 1);
+            output_json_telemetry("keyboard", px, py, goal_reached);
+
+            if (goal_reached) {
+              won = true;
+              SDL_SetWindowTitle(win, "You win! Press R to regenerate, Esc to quit");
+            }
           }
         }
       }
