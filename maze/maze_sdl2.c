@@ -20,8 +20,12 @@
 // Joystick dead zone threshold (0–32767 range)
 #define JOYSTICK_DEADZONE 8000
 
-// For JSON logging
-#define TELEMETRY_URL "http://localhost:8080/move"
+// Default HTTP server endpoint for telemetry
+// Run with: `TELEMETRY_URL="http://172.24.205.173:8080/move" ./maze_sdl2`
+// On WSL: `export MONGO_URI="mongodb://172.21.128.1:27017"`, then `./maze_http_mongo`
+static const char* g_telemetry_url = "http://localhost:8080/move";
+
+// Session state for JSON telemetry
 static char g_session_id[40];
 static int  g_move_sequence = 0;
 
@@ -42,7 +46,7 @@ static void post_json_to_server(const char* json) {
   struct curl_slist* headers = NULL;
   headers = curl_slist_append(headers, "Content-Type: application/json");
 
-  curl_easy_setopt(curl, CURLOPT_URL, TELEMETRY_URL);
+  curl_easy_setopt(curl, CURLOPT_URL, g_telemetry_url);
   curl_easy_setopt(curl, CURLOPT_POST, 1L);
   curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json);
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
@@ -323,6 +327,13 @@ int main(int argc, char** argv) {
 
   // Initialize libcurl globally
   curl_global_init(CURL_GLOBAL_DEFAULT);
+
+  // Check for telemetry URL override
+  const char* env_url = getenv("TELEMETRY_URL");
+  if (env_url && strlen(env_url) > 0) {
+    g_telemetry_url = env_url;
+  }
+  printf("Telemetry URL: %s\n", g_telemetry_url);
 
   // Generate session ID for telemetry
   generate_session_id();
