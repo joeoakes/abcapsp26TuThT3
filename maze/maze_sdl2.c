@@ -328,7 +328,7 @@ int main(int argc, char** argv) {
   generate_session_id();
 
   // For testing w/ PS5 controller
-  SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5, "1");
+  //SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5, "1");
   SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4, "1");
 
   // Initialize both VIDEO and JOYSTICK + GAMECONTROLLER subsystems
