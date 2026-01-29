@@ -10,6 +10,7 @@
 #include <time.h>
 #include <string.h>
 #include <uuid/uuid.h>
+#include <curl/curl.h>
 
 #define MAZE_W 21   // number of cells horizontally
 #define MAZE_H 15   // number of cells vertically
@@ -19,9 +20,44 @@
 // Joystick dead zone threshold (0–32767 range)
 #define JOYSTICK_DEADZONE 8000
 
-// Session state for JSON telemetry
+// For JSON logging
+#define TELEMETRY_URL "http://localhost:8080/move"
 static char g_session_id[40];
 static int  g_move_sequence = 0;
+
+// Discard curl response body
+static size_t discard_response(void* ptr, size_t size, size_t nmemb, void* userdata) {
+  (void)ptr; (void)userdata;
+  return size * nmemb;
+}
+
+// POST JSON string to the telemetry server
+static void post_json_to_server(const char* json) {
+  CURL* curl = curl_easy_init();
+  if (!curl) {
+    fprintf(stderr, "curl_easy_init failed\n");
+    return;
+  }
+
+  struct curl_slist* headers = NULL;
+  headers = curl_slist_append(headers, "Content-Type: application/json");
+
+  curl_easy_setopt(curl, CURLOPT_URL, TELEMETRY_URL);
+  curl_easy_setopt(curl, CURLOPT_POST, 1L);
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json);
+  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, discard_response);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L); // 2 second timeout
+  //curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+
+  CURLcode res = curl_easy_perform(curl);
+  if (res != CURLE_OK) {
+    fprintf(stderr, "curl POST failed: %s\n", curl_easy_strerror(res));
+  }
+
+  curl_slist_free_all(headers);
+  curl_easy_cleanup(curl);
+}
 
 // Wall bitmask for each cell
 enum { WALL_N = 1, WALL_E = 2, WALL_S = 4, WALL_W = 8 };
@@ -211,20 +247,29 @@ static void output_json_telemetry(const char* device, int px, int py, bool goal_
   char timestamp[32];
   get_iso8601_timestamp(timestamp, sizeof(timestamp));
 
-  printf("{\n");
-  printf("  \"session_id\": \"%s\",\n", g_session_id);
-  printf("  \"event_type\": \"player_move\",\n");
-  printf("  \"input\": {\n");
-  printf("    \"device\": \"%s\",\n", device);
-  printf("    \"move_sequence\": %d\n", g_move_sequence);
-  printf("  },\n");
-  printf("  \"player\": {\n");
-  printf("    \"position\": { \"x\": %d, \"y\": %d }\n", px, py);
-  printf("  },\n");
-  printf("  \"goal_reached\": %s,\n", goal_reached ? "true" : "false");
-  printf("  \"timestamp\": \"%s\"\n", timestamp);
-  printf("}\n");
+  char json[1024];
+  snprintf(json, sizeof(json),
+    "{\n"
+    "  \"session_id\": \"%s\",\n"
+    "  \"event_type\": \"player_move\",\n"
+    "  \"input\": {\n"
+    "    \"device\": \"%s\",\n"
+    "    \"move_sequence\": %d\n"
+    "  },\n"
+    "  \"player\": {\n"
+    "    \"position\": { \"x\": %d, \"y\": %d }\n"
+    "  },\n"
+    "  \"goal_reached\": %s,\n"
+    "  \"timestamp\": \"%s\"\n"
+    "}\n",
+    g_session_id, device, g_move_sequence, px, py,
+    goal_reached ? "true" : "false", timestamp);
+
+  printf("%s", json);
   fflush(stdout);
+
+  // POST to server
+  post_json_to_server(json);
 }
 
 // Handle joystick/controller axis input + emit telemetry on move
@@ -275,6 +320,9 @@ static bool handle_joystick_axis(int axis, Sint16 value, int* px, int* py, bool*
 int main(int argc, char** argv) {
   (void)argc; (void)argv;
   srand((unsigned)time(NULL));
+
+  // Initialize libcurl globally
+  curl_global_init(CURL_GLOBAL_DEFAULT);
 
   // Generate session ID for telemetry
   generate_session_id();
@@ -424,5 +472,6 @@ int main(int argc, char** argv) {
   SDL_DestroyRenderer(r);
   SDL_DestroyWindow(win);
   SDL_Quit();
+  curl_global_cleanup();
   return 0;
 }
