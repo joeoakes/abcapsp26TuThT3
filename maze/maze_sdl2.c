@@ -23,7 +23,7 @@
 // Default HTTP server endpoint for telemetry
 // Run with: `TELEMETRY_URL="http://172.24.205.173:8080/move" ./maze_sdl2`
 // On WSL: `export MONGO_URI="mongodb://172.21.128.1:27017"`, then `./maze_http_mongo`
-static const char* g_telemetry_url = "http://localhost:8443/move";
+static const char* g_telemetry_url = "https://localhost:8443/move";
 
 // Session state for JSON telemetry
 static char g_session_id[40];
