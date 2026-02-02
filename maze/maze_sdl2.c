@@ -23,7 +23,7 @@
 // Default HTTP server endpoint for telemetry
 // Run with: `TELEMETRY_URL="http://172.24.205.173:8080/move" ./maze_sdl2`
 // On WSL: `export MONGO_URI="mongodb://172.21.128.1:27017"`, then `./maze_http_mongo`
-static const char* g_telemetry_url = "http://localhost:8080/move";
+static const char* g_telemetry_url = "http://localhost:8443/move";
 
 // Session state for JSON telemetry
 static char g_session_id[40];
@@ -53,7 +53,10 @@ static void post_json_to_server(const char* json) {
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, discard_response);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L); // 2 second timeout
   //curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
-
+  //Allow HTTPS without verification
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+  
   CURLcode res = curl_easy_perform(curl);
   if (res != CURLE_OK) {
     fprintf(stderr, "curl POST failed: %s\n", curl_easy_strerror(res));
