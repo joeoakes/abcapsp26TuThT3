@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <microhttpd.h>
 #include <gnutls/gnutls.h>
+#include <gnutls/x509.h>
 #include <mongoc/mongoc.h>
 #include <bson/bson.h>
 #include <stdio.h>
@@ -26,6 +27,7 @@ static const char *cert_file    = "certs/server.crt";
 static const char *key_file     = "certs/server.key";
 static const char *ca_cert_file = "certs/ca.crt";
 static mongoc_client_t *mongo_client;
+static char *g_ca_cert_pem = NULL;
 
 struct connection_info {
     char *data;
@@ -93,8 +95,10 @@ static enum MHD_Result handle_post(void *cls,
         return MHD_YES;
     }
 
-    /* mTLS: verify client certificate is present */
+    /* mTLS: verify client certificate is present AND signed by our CA */
     {
+        const char *reject_msg = NULL;
+
         const union MHD_ConnectionInfo *conn_info =
             MHD_get_connection_info(connection, MHD_CONNECTION_INFO_GNUTLS_SESSION);
         gnutls_session_t session = conn_info ?
@@ -104,14 +108,47 @@ static enum MHD_Result handle_post(void *cls,
             gnutls_certificate_get_peers(session, &cert_count) : NULL;
 
         if (!peer_certs || cert_count == 0) {
-            fprintf(stderr, "mTLS: client certificate missing — rejecting\n");
+            reject_msg = "{\"error\":\"client certificate required\"}";
+            fprintf(stderr, "mTLS: no client certificate presented\n");
+        }
+
+        /* Parse and verify the client cert against MazeLab-CA */
+        if (!reject_msg) {
+            gnutls_x509_crt_t client_crt, ca_crt;
+            gnutls_x509_crt_init(&client_crt);
+            gnutls_x509_crt_init(&ca_crt);
+
+            gnutls_datum_t ca_datum = {
+                .data = (unsigned char *)g_ca_cert_pem,
+                .size = strlen(g_ca_cert_pem)
+            };
+
+            int imp_client = gnutls_x509_crt_import(client_crt, &peer_certs[0], GNUTLS_X509_FMT_DER);
+            int imp_ca     = gnutls_x509_crt_import(ca_crt,     &ca_datum,      GNUTLS_X509_FMT_PEM);
+
+            if (imp_client < 0 || imp_ca < 0) {
+                reject_msg = "{\"error\":\"failed to parse certificate\"}";
+                fprintf(stderr, "mTLS: cert parse error (client=%d ca=%d)\n", imp_client, imp_ca);
+            } else {
+                unsigned int verify_status = 0;
+                int vret = gnutls_x509_crt_verify(client_crt, &ca_crt, 1, 0, &verify_status);
+                if (vret < 0 || verify_status != 0) {
+                    reject_msg = "{\"error\":\"client certificate not signed by trusted CA\"}";
+                    fprintf(stderr, "mTLS: CA verification failed (vret=%d status=%u)\n", vret, verify_status);
+                }
+            }
+
+            gnutls_x509_crt_deinit(client_crt);
+            gnutls_x509_crt_deinit(ca_crt);
+        }
+
+        if (reject_msg) {
             free(ci->data);
             free(ci);
             *con_cls = NULL;
 
-            const char *msg = "{\"error\":\"client certificate required\"}";
             struct MHD_Response *resp = MHD_create_response_from_buffer(
-                strlen(msg), (void *)msg, MHD_RESPMEM_PERSISTENT);
+                strlen(reject_msg), (void *)reject_msg, MHD_RESPMEM_PERSISTENT);
             MHD_add_response_header(resp, "Content-Type", "application/json");
             enum MHD_Result ret = MHD_queue_response(connection, MHD_HTTP_FORBIDDEN, resp);
             MHD_destroy_response(resp);
@@ -188,6 +225,8 @@ int main(void) {
     char *cert_pem     = read_file(cert_file);
     char *key_pem      = read_file(key_file);
     char *ca_cert_pem  = read_file(ca_cert_file);
+    g_ca_cert_pem = ca_cert_pem;
+
     if (!cert_pem || !key_pem || !ca_cert_pem) {
         fprintf(stderr, "Failed to read cert/key/CA files\n");
         free(cert_pem);
