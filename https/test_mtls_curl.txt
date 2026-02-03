@@ -1,0 +1,33 @@
+mTLS Curl Test Commands
+========================
+Run these from the https/ directory.
+
+
+TEST 1 - Valid client cert (should return 200 ok):
+---------------------------------------------------
+curl --cacert certs/ca.crt --cert certs/client.crt --key certs/client.key -X POST https://localhost:8443/move -H "Content-Type: application/json" -d '{"event_type":"player_move","input":{"device":"keyboard","move_sequence":1},"player":{"position":{"x":1,"y":0}},"goal_reached":false,"timestamp":"2026-02-03T03:30:00Z"}'
+
+Expected: {"status":"ok"}
+
+
+TEST 2 - No client cert (should return 403):
+---------------------------------------------
+curl --cacert certs/ca.crt -X POST https://localhost:8443/move -H "Content-Type: application/json" -d '{"event_type":"player_move","input":{"device":"keyboard","move_sequence":1},"player":{"position":{"x":1,"y":0}},"goal_reached":false,"timestamp":"2026-02-03T03:30:00Z"}'
+
+Expected: {"error":"client certificate required"}
+
+
+TEST 3 - Rogue cert not signed by MazeLab-CA (should return 403):
+------------------------------------------------------------------
+First generate the rogue cert:
+  openssl req -x509 -newkey rsa:2048 -keyout /tmp/rogue.key -out /tmp/rogue.crt -days 1 -nodes -subj "/CN=rogue-client"
+
+Then run:
+  curl --cacert certs/ca.crt --cert /tmp/rogue.crt --key /tmp/rogue.key -X POST https://localhost:8443/move -H "Content-Type: application/json" -d '{"event_type":"player_move","input":{"device":"keyboard","move_sequence":1},"player":{"position":{"x":1,"y":0}},"goal_reached":false,"timestamp":"2026-02-03T03:30:00Z"}'
+
+Expected: {"error":"client certificate not signed by trusted CA"}
+
+
+NOTE: If you are not in the https/ directory, replace --cacert certs/ca.crt with -k
+to skip server cert verification. Example:
+  curl -k -X POST https://localhost:8443/move -H "Content-Type: application/json" -d '{"event_type":"player_move","input":{"device":"keyboard","move_sequence":1},"player":{"position":{"x":1,"y":0}},"goal_reached":false,"timestamp":"2026-02-03T03:30:00Z"}'
