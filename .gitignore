@@ -1,0 +1,7 @@
+# Compiled binaries
+http/maze_http_mongo
+https/maze_https_mongo
+maze/maze_sdl2
+
+# Object files
+*.o
