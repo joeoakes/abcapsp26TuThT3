@@ -1,22 +1,30 @@
+#define _GNU_SOURCE
 #include <errno.h>
 #include <microhttpd.h>
+#include <gnutls/gnutls.h>
 #include <mongoc/mongoc.h>
 #include <bson/bson.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <time.h>
 
+static volatile sig_atomic_t g_stop = 0;
+
+static void on_sigint(int signo) {
+    (void)signo;
+    g_stop = 1;
+}
+
 #define DEFAULT_PORT 8443
-#define POSTBUFFERSIZE  4096
-#define MAXNAMESIZE     64
-#define MAXANSWERSIZE   512
 #define DEFAULT_MONGO_URI "mongodb://localhost:27017"
 #define DEFAULT_MONGO_DB  "maze"
 #define DEFAULT_MONGO_COL "moves"
 
-static const char *cert_file = "certs/server.crt";
-static const char *key_file  = "certs/server.key";
+static const char *cert_file    = "certs/server.crt";
+static const char *key_file     = "certs/server.key";
+static const char *ca_cert_file = "certs/ca.crt";
 static mongoc_client_t *mongo_client;
 
 struct connection_info {
@@ -38,7 +46,6 @@ static char *read_file(const char *path) {
     return buf;
 }
 
-
 static void get_utc_iso8601(char *buf, size_t len) {
     time_t now = time(NULL);
     struct tm tm;
@@ -54,7 +61,7 @@ struct app_config {
 
 static struct app_config config;
 
-static int handle_post(void *cls,
+static enum MHD_Result handle_post(void *cls,
                        struct MHD_Connection *connection,
                        const char *url,
                        const char *method,
@@ -86,11 +93,40 @@ static int handle_post(void *cls,
         return MHD_YES;
     }
 
+    /* mTLS: verify client certificate is present */
+    {
+        const union MHD_ConnectionInfo *conn_info =
+            MHD_get_connection_info(connection, MHD_CONNECTION_INFO_GNUTLS_SESSION);
+        gnutls_session_t session = conn_info ?
+            (gnutls_session_t)conn_info->tls_session : NULL;
+        unsigned int cert_count = 0;
+        const gnutls_datum_t *peer_certs = session ?
+            gnutls_certificate_get_peers(session, &cert_count) : NULL;
+
+        if (!peer_certs || cert_count == 0) {
+            fprintf(stderr, "mTLS: client certificate missing — rejecting\n");
+            free(ci->data);
+            free(ci);
+            *con_cls = NULL;
+
+            const char *msg = "{\"error\":\"client certificate required\"}";
+            struct MHD_Response *resp = MHD_create_response_from_buffer(
+                strlen(msg), (void *)msg, MHD_RESPMEM_PERSISTENT);
+            MHD_add_response_header(resp, "Content-Type", "application/json");
+            enum MHD_Result ret = MHD_queue_response(connection, MHD_HTTP_FORBIDDEN, resp);
+            MHD_destroy_response(resp);
+            return ret;
+        }
+    }
+
     /* MongoDB insert */
     bson_error_t error;
     bson_t *doc = bson_new_from_json((uint8_t *)ci->data, -1, &error);
     if (!doc) {
         fprintf(stderr, "JSON error: %s\n", error.message);
+        free(ci->data);
+        free(ci);
+        *con_cls = NULL;
         return MHD_NO;
     }
 
@@ -113,7 +149,7 @@ static int handle_post(void *cls,
                                          (void *)response,
                                          MHD_RESPMEM_PERSISTENT);
 
-    int ret = MHD_queue_response(connection, MHD_HTTP_OK, resp);
+    enum MHD_Result ret = MHD_queue_response(connection, MHD_HTTP_OK, resp);
     MHD_destroy_response(resp);
 
     free(ci->data);
@@ -136,6 +172,11 @@ int main(void) {
     if (!config.mongo_col || !*config.mongo_col)
         config.mongo_col = DEFAULT_MONGO_COL;
 
+    /* cert / key / CA path overrides */
+    const char *env;
+    env = getenv("CERT_FILE");    if (env && *env) cert_file    = env;
+    env = getenv("KEY_FILE");     if (env && *env) key_file     = env;
+    env = getenv("CA_CERT_FILE"); if (env && *env) ca_cert_file = env;
 
     mongoc_init();
     mongo_client = mongoc_client_new(config.mongo_uri);
@@ -144,36 +185,58 @@ int main(void) {
         return 1;
     }
 
-	char *cert_pem = read_file(cert_file);
-	char *key_pem  = read_file(key_file);
-	if (!cert_pem || !key_pem) {
-    	fprintf(stderr, "Failed to read cert/key files\n");
-    	return 1;
-	}
-
+    char *cert_pem     = read_file(cert_file);
+    char *key_pem      = read_file(key_file);
+    char *ca_cert_pem  = read_file(ca_cert_file);
+    if (!cert_pem || !key_pem || !ca_cert_pem) {
+        fprintf(stderr, "Failed to read cert/key/CA files\n");
+        free(cert_pem);
+        free(key_pem);
+        free(ca_cert_pem);
+        mongoc_client_destroy(mongo_client);
+        mongoc_cleanup();
+        return 1;
+    }
 
     struct MHD_Daemon *daemon = MHD_start_daemon(
         MHD_USE_THREAD_PER_CONNECTION | MHD_USE_TLS,
         DEFAULT_PORT,
         NULL, NULL,
         &handle_post, NULL,
-        MHD_OPTION_HTTPS_MEM_CERT,
-        cert_pem,
-        MHD_OPTION_HTTPS_MEM_KEY,
-        key_pem,
+        MHD_OPTION_HTTPS_MEM_CERT,  cert_pem,
+        MHD_OPTION_HTTPS_MEM_KEY,   key_pem,
+        MHD_OPTION_HTTPS_MEM_TRUST, ca_cert_pem,
         MHD_OPTION_END);
 
     if (!daemon) {
         fprintf(stderr, "Failed to start HTTPS server\n");
+        free(cert_pem);
+        free(key_pem);
+        free(ca_cert_pem);
+        mongoc_client_destroy(mongo_client);
+        mongoc_cleanup();
         return 1;
     }
 
-    printf("HTTPS server listening on https://localhost:%d/move\n", DEFAULT_PORT);
-    getchar();
+    signal(SIGINT, on_sigint);
+    signal(SIGTERM, on_sigint);
 
+    printf("HTTPS mTLS server listening on https://localhost:%d/move\n", DEFAULT_PORT);
+    printf("MongoDB: %s  DB=%s  Collection=%s\n",
+           config.mongo_uri, config.mongo_db, config.mongo_col);
+    fflush(stdout);
+
+    while (!g_stop) {
+        struct timespec ts = {0, 200000000L}; /* 200 ms */
+        nanosleep(&ts, NULL);
+    }
+
+    printf("\nShutting down...\n");
     MHD_stop_daemon(daemon);
-	free(cert_pem);
-	free(key_pem);
+    free(cert_pem);
+    free(key_pem);
+    free(ca_cert_pem);
+    mongoc_client_destroy(mongo_client);
     mongoc_cleanup();
     return 0;
 }

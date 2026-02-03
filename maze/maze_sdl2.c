@@ -25,6 +25,11 @@
 // On WSL: `export MONGO_URI="mongodb://172.21.128.1:27017"`, then `./maze_http_mongo`
 static const char* g_telemetry_url = "https://localhost:8443/move";
 
+// mTLS client certificate paths (override via CLIENT_CERT, CLIENT_KEY, CA_CERT)
+static const char* g_client_cert = "../https/certs/client.crt";
+static const char* g_client_key  = "../https/certs/client.key";
+static const char* g_ca_cert     = "../https/certs/ca.crt";
+
 // Session state for JSON telemetry
 static char g_session_id[40];
 static int  g_move_sequence = 0;
@@ -53,9 +58,12 @@ static void post_json_to_server(const char* json) {
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, discard_response);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L); // 2 second timeout
   //curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
-  //Allow HTTPS without verification
-  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+  // mTLS: present client cert, verify server cert via CA
+  curl_easy_setopt(curl, CURLOPT_SSLCERT,        g_client_cert);
+  curl_easy_setopt(curl, CURLOPT_SSLKEY,         g_client_key);
+  curl_easy_setopt(curl, CURLOPT_CAINFO,         g_ca_cert);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 1L);
   
   CURLcode res = curl_easy_perform(curl);
   if (res != CURLE_OK) {
@@ -337,6 +345,17 @@ int main(int argc, char** argv) {
     g_telemetry_url = env_url;
   }
   printf("Telemetry URL: %s\n", g_telemetry_url);
+
+  // mTLS cert path overrides
+  const char* env_cc = getenv("CLIENT_CERT");
+  if (env_cc && strlen(env_cc) > 0) g_client_cert = env_cc;
+  const char* env_ck = getenv("CLIENT_KEY");
+  if (env_ck && strlen(env_ck) > 0) g_client_key  = env_ck;
+  const char* env_ca = getenv("CA_CERT");
+  if (env_ca && strlen(env_ca) > 0) g_ca_cert     = env_ca;
+  printf("mTLS client cert: %s\n", g_client_cert);
+  printf("mTLS client key:  %s\n", g_client_key);
+  printf("mTLS CA cert:     %s\n", g_ca_cert);
 
   // Generate session ID for telemetry
   generate_session_id();
