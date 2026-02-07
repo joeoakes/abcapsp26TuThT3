@@ -34,6 +34,19 @@ static const char* g_ca_cert     = "../https/certs/ca.crt";
 static char g_session_id[40];
 static int  g_move_sequence = 0;
 
+typedef struct {
+  char* items[256];
+  int head;
+  int tail;
+  int count;
+  bool running;
+  SDL_mutex* mutex;
+  SDL_cond* cond;
+  SDL_Thread* thread;
+} TelemetryQueue;
+
+static TelemetryQueue g_telemetry_queue;
+
 // Discard curl response body
 static size_t discard_response(void* ptr, size_t size, size_t nmemb, void* userdata) {
   (void)ptr; (void)userdata;
@@ -72,6 +85,106 @@ static void post_json_to_server(const char* json) {
 
   curl_slist_free_all(headers);
   curl_easy_cleanup(curl);
+}
+
+static int telemetry_worker(void* userdata) {
+  TelemetryQueue* queue = (TelemetryQueue*)userdata;
+
+  while (true) {
+    SDL_LockMutex(queue->mutex);
+    while (queue->count == 0 && queue->running) {
+      SDL_CondWait(queue->cond, queue->mutex);
+    }
+
+    if (queue->count == 0 && !queue->running) {
+      SDL_UnlockMutex(queue->mutex);
+      break;
+    }
+
+    char* json = queue->items[queue->head];
+    queue->items[queue->head] = NULL;
+    queue->head = (queue->head + 1) % (int)(sizeof(queue->items) / sizeof(queue->items[0]));
+    queue->count--;
+    SDL_UnlockMutex(queue->mutex);
+
+    if (json) {
+      post_json_to_server(json);
+      free(json);
+    }
+  }
+
+  return 0;
+}
+
+static bool telemetry_queue_init(void) {
+  memset(&g_telemetry_queue, 0, sizeof(g_telemetry_queue));
+  g_telemetry_queue.mutex = SDL_CreateMutex(); // Reference: https://wiki.libsdl.org/SDL2/SDL_CreateMutex
+  g_telemetry_queue.cond = SDL_CreateCond();
+  if (!g_telemetry_queue.mutex || !g_telemetry_queue.cond) {
+    if (g_telemetry_queue.mutex) SDL_DestroyMutex(g_telemetry_queue.mutex);
+    if (g_telemetry_queue.cond) SDL_DestroyCond(g_telemetry_queue.cond);
+    memset(&g_telemetry_queue, 0, sizeof(g_telemetry_queue));
+    return false;
+  }
+
+  g_telemetry_queue.running = true;
+  g_telemetry_queue.thread = SDL_CreateThread(telemetry_worker, "telemetry_worker", &g_telemetry_queue);
+  if (!g_telemetry_queue.thread) {
+    g_telemetry_queue.running = false;
+    SDL_DestroyCond(g_telemetry_queue.cond);
+    SDL_DestroyMutex(g_telemetry_queue.mutex);
+    memset(&g_telemetry_queue, 0, sizeof(g_telemetry_queue));
+    return false;
+  }
+
+  return true;
+}
+
+static void telemetry_queue_shutdown(void) {
+  SDL_LockMutex(g_telemetry_queue.mutex);
+  g_telemetry_queue.running = false;
+  SDL_CondSignal(g_telemetry_queue.cond);
+  SDL_UnlockMutex(g_telemetry_queue.mutex);
+
+  if (g_telemetry_queue.thread) {
+    SDL_WaitThread(g_telemetry_queue.thread, NULL);
+  }
+
+  SDL_LockMutex(g_telemetry_queue.mutex);
+  while (g_telemetry_queue.count > 0) {
+    char* json = g_telemetry_queue.items[g_telemetry_queue.head];
+    g_telemetry_queue.items[g_telemetry_queue.head] = NULL;
+    g_telemetry_queue.head = (g_telemetry_queue.head + 1) % (int)(sizeof(g_telemetry_queue.items) / sizeof(g_telemetry_queue.items[0]));
+    g_telemetry_queue.count--;
+    free(json);
+  }
+  SDL_UnlockMutex(g_telemetry_queue.mutex);
+
+  SDL_DestroyCond(g_telemetry_queue.cond);
+  SDL_DestroyMutex(g_telemetry_queue.mutex);
+  memset(&g_telemetry_queue, 0, sizeof(g_telemetry_queue));
+}
+
+static void telemetry_enqueue_json(const char* json) {
+  char* copy = strdup(json);
+  if (!copy) {
+    fprintf(stderr, "telemetry enqueue failed: out of memory\n");
+    return;
+  }
+
+  SDL_LockMutex(g_telemetry_queue.mutex);
+  if (g_telemetry_queue.count == (int)(sizeof(g_telemetry_queue.items) / sizeof(g_telemetry_queue.items[0]))) {
+    SDL_UnlockMutex(g_telemetry_queue.mutex);
+    fprintf(stderr, "telemetry queue full, dropping event\n");
+    free(copy);
+    return;
+  }
+
+  g_telemetry_queue.items[g_telemetry_queue.tail] = copy;
+  g_telemetry_queue.tail = (g_telemetry_queue.tail + 1) % (int)(sizeof(g_telemetry_queue.items) / sizeof(g_telemetry_queue.items[0]));
+  g_telemetry_queue.count++;
+  SDL_CondSignal(g_telemetry_queue.cond);
+  SDL_UnlockMutex(g_telemetry_queue.mutex);
 }
 
 // Wall bitmask for each cell
@@ -283,8 +396,8 @@ static void output_json_telemetry(const char* device, int px, int py, bool goal_
   printf("%s", json);
   fflush(stdout);
 
-  // POST to server
-  post_json_to_server(json);
+  // Enqueue for worker thread
+  telemetry_enqueue_json(json);
 }
 
 // Handle joystick/controller axis input + emit telemetry on move
@@ -367,6 +480,13 @@ int main(int argc, char** argv) {
   // Initialize both VIDEO and JOYSTICK + GAMECONTROLLER subsystems
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) != 0) {
     fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
+    return 1;
+  }
+
+  if (!telemetry_queue_init()) {
+    fprintf(stderr, "Failed to start telemetry worker\n");
+    SDL_Quit();
+    curl_global_cleanup();
     return 1;
   }
 
@@ -504,6 +624,7 @@ int main(int argc, char** argv) {
   if (joystick) SDL_JoystickClose(joystick);
   SDL_DestroyRenderer(r);
   SDL_DestroyWindow(win);
+  telemetry_queue_shutdown();
   SDL_Quit();
   curl_global_cleanup();
   return 0;
