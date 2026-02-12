@@ -18,7 +18,7 @@ static void on_sigint(int signo) {
     g_stop = 1;
 }
 
-#define DEFAULT_PORT 8443
+#define DEFAULT_PORT 8445
 #define DEFAULT_MONGO_URI "mongodb://localhost:27017"
 #define DEFAULT_MONGO_DB  "maze"
 #define DEFAULT_MONGO_COL "moves"
