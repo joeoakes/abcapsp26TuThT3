@@ -18,6 +18,14 @@ It is a small **C** program that:
 - **Content-Type:** `application/json`
 - **Protocol:** HTTPS
 
+### Read Back Telemetry
+
+- **GET** `/moves`
+- Optional query params:
+  - `limit` (default: 100, max: 1000)
+  - `sort=asc|desc` (default: desc by `_id`)
+  - `session_id=<id>` (optional filter)
+
 The server automatically appends:
 
 ```json

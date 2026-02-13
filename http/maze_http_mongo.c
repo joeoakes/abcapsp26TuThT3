@@ -45,6 +45,11 @@
 #define MHD_HTTP_OK 200
 #endif
 
+// Safety caps for GET /moves responses.
+#define DEFAULT_LIST_LIMIT 100
+#define MAX_LIST_LIMIT 1000
+#define MAX_LIST_BYTES (1024 * 1024) // 1 MiB
+
 static volatile sig_atomic_t g_stop = 0;
 
 static void on_sigint(int signo) {
@@ -75,6 +80,45 @@ static int respond_json(struct MHD_Connection* connection, unsigned int status, 
   int ret = MHD_queue_response(connection, status, response);
   MHD_destroy_response(response);
   return ret;
+}
+
+typedef struct {
+  char* data;
+  size_t size;
+  size_t cap;
+} StrBuf;
+
+static void strbuf_free(StrBuf* b) {
+  if (!b) return;
+  free(b->data);
+  b->data = NULL;
+  b->size = b->cap = 0;
+}
+
+static bool strbuf_append(StrBuf* b, const char* s, size_t n) {
+  if (n == 0) return true;
+  if (b->size + n + 1 > b->cap) {
+    size_t newcap = b->cap ? b->cap : 1024;
+    while (newcap < b->size + n + 1) newcap *= 2;
+    char* nd = (char*)realloc(b->data, newcap);
+    if (!nd) return false;
+    b->data = nd;
+    b->cap = newcap;
+  }
+  memcpy(b->data + b->size, s, n);
+  b->size += n;
+  b->data[b->size] = '\0';
+  return true;
+}
+
+static long parse_long_clamped(const char* s, long defv, long minv, long maxv) {
+  if (!s || !*s) return defv;
+  char* end = NULL;
+  long v = strtol(s, &end, 10);
+  if (end == s) return defv;
+  if (v < minv) return minv;
+  if (v > maxv) return maxv;
+  return v;
 }
 
 typedef struct {
@@ -177,6 +221,85 @@ static int handle_post_move(struct MHD_Connection* connection, MongoCtx* mctx, c
   return respond_json(connection, MHD_HTTP_OK, out);
 }
 
+static int handle_get_moves(struct MHD_Connection* connection, MongoCtx* mctx) {
+  const char* limit_s = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "limit");
+  const char* sort_s  = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "sort"); // asc|desc
+  const char* session_id = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "session_id");
+
+  long limit = parse_long_clamped(limit_s, DEFAULT_LIST_LIMIT, 1, MAX_LIST_LIMIT);
+  int sort_dir = (sort_s && (0 == strcmp(sort_s, "asc") || 0 == strcmp(sort_s, "ASC"))) ? 1 : -1;
+
+  bson_t filter;
+  bson_init(&filter);
+  if (session_id && *session_id) {
+    BSON_APPEND_UTF8(&filter, "session_id", session_id);
+  }
+
+  bson_t opts;
+  bson_init(&opts);
+  BSON_APPEND_INT64(&opts, "limit", (int64_t)limit);
+
+  bson_t sort;
+  bson_init(&sort);
+  BSON_APPEND_INT32(&sort, "_id", sort_dir);
+  BSON_APPEND_DOCUMENT(&opts, "sort", &sort);
+
+  mongoc_cursor_t* cursor = mongoc_collection_find_with_opts(mctx->col, &filter, &opts, NULL);
+
+  StrBuf out = {0};
+  bool ok = true;
+  bool truncated = false;
+  int count = 0;
+
+  ok = ok && strbuf_append(&out, "{\"ok\":true,\"moves\":[", strlen("{\"ok\":true,\"moves\":["));
+  char numbuf[32];
+
+  const bson_t* doc;
+  while (ok && mongoc_cursor_next(cursor, &doc)) {
+    size_t json_len = 0;
+    char* json = bson_as_relaxed_extended_json(doc, &json_len);
+    if (!json) { ok = false; break; }
+
+    if (out.size + (count ? 1 : 0) + json_len + 2 > MAX_LIST_BYTES) {
+      bson_free(json);
+      truncated = true;
+      break;
+    }
+
+    if (count > 0) ok = ok && strbuf_append(&out, ",", 1);
+    ok = ok && strbuf_append(&out, json, json_len);
+    bson_free(json);
+    count++;
+  }
+
+  bson_error_t err;
+  if (mongoc_cursor_error(cursor, &err)) {
+    ok = false;
+  }
+
+  mongoc_cursor_destroy(cursor);
+  bson_destroy(&sort);
+  bson_destroy(&opts);
+  bson_destroy(&filter);
+
+  ok = ok && strbuf_append(&out, "],\"count\":", strlen("],\"count\":"));
+  int nw = snprintf(numbuf, sizeof(numbuf), "%d", count);
+  if (nw < 0) ok = false;
+  ok = ok && strbuf_append(&out, numbuf, (size_t)nw);
+  ok = ok && strbuf_append(&out, ",\"truncated\":", strlen(",\"truncated\":"));
+  ok = ok && strbuf_append(&out, truncated ? "true" : "false", truncated ? 4 : 5);
+  ok = ok && strbuf_append(&out, "}\n", 2);
+
+  if (!ok) {
+    strbuf_free(&out);
+    return respond_text(connection, MHD_HTTP_INTERNAL_SERVER_ERROR, "Failed to query moves\n");
+  }
+
+  int ret = respond_json(connection, MHD_HTTP_OK, out.data ? out.data : "{}");
+  strbuf_free(&out);
+  return ret;
+}
+
 static int request_handler(void* cls,
                            struct MHD_Connection* connection,
                            const char* url,
@@ -190,10 +313,12 @@ static int request_handler(void* cls,
 
   // Only one endpoint for simplicity
   const bool is_move = (0 == strcmp(url, "/move"));
+  const bool is_moves = (0 == strcmp(url, "/moves"));
 
   if (0 == strcmp(method, "GET")) {
-    if (!is_move) return respond_text(connection, MHD_HTTP_NOT_FOUND, "Not found\n");
-    return respond_text(connection, MHD_HTTP_OK, "POST JSON to /move\n");
+    if (is_move) return respond_text(connection, MHD_HTTP_OK, "POST JSON to /move\n");
+    if (is_moves) return handle_get_moves(connection, mctx);
+    return respond_text(connection, MHD_HTTP_NOT_FOUND, "Not found\n");
   }
 
   if (0 != strcmp(method, "POST")) {
