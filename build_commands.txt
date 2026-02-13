@@ -1,0 +1,13 @@
+# Build Commands (Linux/WSL)
+#
+# Run these from the repository root.
+#
+
+## HTTP (maze_http_mongo)
+gcc -O2 -Wall -Wextra -std=c11 http/maze_http_mongo.c -o maze_http_mongo \
+  $(pkg-config --cflags --libs libmicrohttpd libmongoc-1.0)
+
+## HTTPS mTLS (maze_https_mongo)
+gcc -O2 -Wall -Wextra -std=c11 https/maze_https_mongo.c -o maze_https_mongo \
+  $(pkg-config --cflags --libs libmicrohttpd libmongoc-1.0 gnutls)
+
