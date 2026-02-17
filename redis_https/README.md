@@ -6,6 +6,7 @@ This folder is a Redis variant of the HTTPS server so the original `https/` Mong
 ## Endpoints
 - `POST /mission` (primary)
 - `POST /move` (compatibility alias)
+- `GET /mission?mission_id=<id>` (read mission hash)
 - `GET /health`
 
 ## Expected JSON payload
@@ -37,13 +38,8 @@ Stored Redis key format:
 - `REDIS_KEY_PREFIX` (default `team3ttmission`)
 - `CERT_FILE`, `KEY_FILE`, `CA_CERT_FILE` (optional cert path overrides)
 
-## Setup + Build (Linux/WSL)
-One-command setup/build script:
-```bash
-bash setup_build.sh
-```
-
-Equivalent one-line compile command:
+## Build (Linux/WSL)
+One-line compile command:
 ```bash
 gcc -O2 -Wall -Wextra -std=c11 maze_https_mongo.c -o maze_https_redis $(pkg-config --cflags --libs libmicrohttpd gnutls libbson-1.0 hiredis)
 ```
@@ -56,6 +52,11 @@ gcc -O2 -Wall -Wextra -std=c11 maze_https_mongo.c -o maze_https_redis $(pkg-conf
 ## Test
 ```bash
 curl -sS --cacert certs/ca.crt --cert certs/client.crt --key certs/client.key -X POST https://localhost:8445/mission -H "Content-Type: application/json" -d '{"mission_id":"TEST_MISSION","robot_id":"TEST_ROBOT","mission_type":"patrol","start_time":1770056813,"end_time":1770056848,"moves_left_turn":46,"moves_right_turn":46,"moves_straight":52,"moves_reverse":8,"moves_total":152,"distance_traveled":24.41,"duration_seconds":35,"mission_result":"success","abort_reason":"user exited"}'
+```
+
+Read back one mission:
+```bash
+curl -sS --cacert certs/ca.crt --cert certs/client.crt --key certs/client.key "https://localhost:8445/mission?mission_id=TEST_MISSION"
 ```
 
 Verify in Redis:

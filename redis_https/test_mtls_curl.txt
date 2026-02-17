@@ -6,5 +6,8 @@ curl --cacert certs/ca.crt --cert certs/client.crt --key certs/client.key -X POS
 # 2) Health check
 curl --cacert certs/ca.crt --cert certs/client.crt --key certs/client.key https://localhost:8445/health
 
-# 3) Verify in Redis
+# 3) Read one mission via API
+curl --cacert certs/ca.crt --cert certs/client.crt --key certs/client.key "https://localhost:8445/mission?mission_id=TEST_MISSION"
+
+# 4) Verify in Redis
 redis-cli HGETALL team3ttmission:TEST_MISSION

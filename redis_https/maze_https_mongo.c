@@ -273,6 +273,78 @@ static enum MHD_Result handle_post_mission(struct MHD_Connection *connection,
     return respond_json(connection, MHD_HTTP_OK, out);
 }
 
+static enum MHD_Result handle_get_mission(struct MHD_Connection *connection) {
+    const char *reject_msg = verify_client_cert(connection);
+    if (reject_msg) return respond_json(connection, MHD_HTTP_FORBIDDEN, reject_msg);
+
+    const char *mission_id =
+        MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "mission_id");
+    if (!mission_id || !*mission_id) {
+        return respond_json(connection, MHD_HTTP_BAD_REQUEST,
+                            "{\"ok\":false,\"error\":\"mission_id query param is required\"}\n");
+    }
+
+    char redis_key[256];
+    snprintf(redis_key, sizeof(redis_key), "%s:%s", config.key_prefix, mission_id);
+
+    redisContext *rctx = redisConnect(config.redis_host, config.redis_port);
+    if (!rctx || rctx->err) {
+        char out[512];
+        const char *errstr = (rctx && rctx->errstr) ? rctx->errstr : "failed to connect";
+        snprintf(out, sizeof(out),
+                 "{\"ok\":false,\"error\":\"redis connect failed: %s\"}\n", errstr);
+        if (rctx) redisFree(rctx);
+        return respond_json(connection, MHD_HTTP_INTERNAL_SERVER_ERROR, out);
+    }
+
+    redisReply *reply = (redisReply *)redisCommand(rctx, "HGETALL %s", redis_key);
+    if (!reply) {
+        char out[512];
+        snprintf(out, sizeof(out),
+                 "{\"ok\":false,\"error\":\"redis command failed: %s\"}\n",
+                 rctx->errstr ? rctx->errstr : "unknown");
+        redisFree(rctx);
+        return respond_json(connection, MHD_HTTP_INTERNAL_SERVER_ERROR, out);
+    }
+
+    if (reply->type != REDIS_REPLY_ARRAY || reply->elements == 0) {
+        freeReplyObject(reply);
+        redisFree(rctx);
+        return respond_json(connection, MHD_HTTP_NOT_FOUND,
+                            "{\"ok\":false,\"error\":\"mission not found\"}\n");
+    }
+
+    bson_t out_doc;
+    bson_init(&out_doc);
+    BSON_APPEND_BOOL(&out_doc, "ok", true);
+    BSON_APPEND_UTF8(&out_doc, "key", redis_key);
+
+    bson_t mission_doc;
+    BSON_APPEND_DOCUMENT_BEGIN(&out_doc, "mission", &mission_doc);
+    for (size_t i = 0; i + 1 < reply->elements; i += 2) {
+        redisReply *k = reply->element[i];
+        redisReply *v = reply->element[i + 1];
+        if (k->type != REDIS_REPLY_STRING || v->type != REDIS_REPLY_STRING) continue;
+        bson_append_utf8(&mission_doc, k->str, -1, v->str, -1);
+    }
+    bson_append_document_end(&out_doc, &mission_doc);
+
+    size_t json_len = 0;
+    char *json = bson_as_relaxed_extended_json(&out_doc, &json_len);
+    bson_destroy(&out_doc);
+    freeReplyObject(reply);
+    redisFree(rctx);
+
+    if (!json) {
+        return respond_json(connection, MHD_HTTP_INTERNAL_SERVER_ERROR,
+                            "{\"ok\":false,\"error\":\"failed to build response\"}\n");
+    }
+
+    enum MHD_Result ret = respond_json(connection, MHD_HTTP_OK, json);
+    bson_free(json);
+    return ret;
+}
+
 static enum MHD_Result request_handler(void *cls,
                        struct MHD_Connection *connection,
                        const char *url,
@@ -291,6 +363,9 @@ static enum MHD_Result request_handler(void *cls,
 
     if (0 == strcmp(method, "GET") && 0 == strcmp(url, "/health")) {
         return respond_json(connection, MHD_HTTP_OK, "{\"ok\":true}\n");
+    }
+    if (0 == strcmp(method, "GET") && 0 == strcmp(url, "/mission")) {
+        return handle_get_mission(connection);
     }
 
     if (!is_mission_post) {
