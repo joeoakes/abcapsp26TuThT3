@@ -1,0 +1,14 @@
+# Redis HTTPS mTLS test commands
+
+# 1) Mission ingest
+curl --cacert certs/ca.crt --cert certs/client.crt --key certs/client.key \
+  -X POST https://localhost:8445/mission \
+  -H "Content-Type: application/json" \
+  -d '{"mission_id":"TEST_MISSION","robot_id":"TEST_ROBOT","mission_type":"patrol","start_time":1770056813,"end_time":1770056848,"moves_left_turn":46,"moves_right_turn":46,"moves_straight":52,"moves_reverse":8,"moves_total":152,"distance_traveled":24.41,"duration_seconds":35,"mission_result":"success","abort_reason":"user exited"}'
+
+# 2) Health check
+curl --cacert certs/ca.crt --cert certs/client.crt --key certs/client.key \
+  https://localhost:8445/health
+
+# 3) Verify in Redis
+redis-cli HGETALL team3ttmission:TEST_MISSION
