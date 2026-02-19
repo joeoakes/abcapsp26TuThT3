@@ -30,6 +30,10 @@ static const char* g_client_cert = "../https/certs/client.crt";
 static const char* g_client_key  = "../https/certs/client.key";
 static const char* g_ca_cert     = "../https/certs/ca.crt";
 
+// Robot bridge endpoint (disabled when NULL; set via ROBOT_URL env var)
+// Example: ROBOT_URL="https://10.170.8.120:8446/robot" ./maze_sdl2
+static const char* g_robot_url = NULL;
+
 // Session state for JSON telemetry
 static char g_session_id[40];
 static int  g_move_sequence = 0;
@@ -46,6 +50,7 @@ typedef struct {
 } TelemetryQueue;
 
 static TelemetryQueue g_telemetry_queue;
+static TelemetryQueue g_robot_queue;
 
 // Discard curl response body
 static size_t discard_response(void* ptr, size_t size, size_t nmemb, void* userdata) {
@@ -87,8 +92,51 @@ static void post_json_to_server(const char* json) {
   curl_easy_cleanup(curl);
 }
 
-static int telemetry_worker(void* userdata) {
-  TelemetryQueue* queue = (TelemetryQueue*)userdata;
+// POST a robot command JSON to the Mini-Pupper bridge
+static void post_robot_command(const char* json) {
+  if (!g_robot_url) return;
+
+  CURL* curl = curl_easy_init();
+  if (!curl) {
+    fprintf(stderr, "robot curl_easy_init failed\n");
+    return;
+  }
+
+  struct curl_slist* headers = NULL;
+  headers = curl_slist_append(headers, "Content-Type: application/json");
+
+  curl_easy_setopt(curl, CURLOPT_URL, g_robot_url);
+  curl_easy_setopt(curl, CURLOPT_POST, 1L);
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json);
+  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, discard_response);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L);
+  // Self-signed HTTPS on robot: skip peer verification for now
+  // TODO: add mTLS or CA verification for robot link
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+  CURLcode res = curl_easy_perform(curl);
+  if (res != CURLE_OK) {
+    fprintf(stderr, "robot POST failed: %s\n", curl_easy_strerror(res));
+  }
+
+  curl_slist_free_all(headers);
+  curl_easy_cleanup(curl);
+}
+
+// Generic queue worker — calls post_fn for each dequeued JSON string
+typedef void (*post_fn_t)(const char*);
+
+typedef struct {
+  TelemetryQueue* queue;
+  post_fn_t       post_fn;
+} WorkerCtx;
+
+static int queue_worker(void* userdata) {
+  WorkerCtx* ctx = (WorkerCtx*)userdata;
+  TelemetryQueue* queue = ctx->queue;
+  post_fn_t post_fn = ctx->post_fn;
 
   while (true) {
     SDL_LockMutex(queue->mutex);
@@ -108,83 +156,117 @@ static int telemetry_worker(void* userdata) {
     SDL_UnlockMutex(queue->mutex);
 
     if (json) {
-      post_json_to_server(json);
+      post_fn(json);
       free(json);
     }
   }
 
+  free(ctx);
   return 0;
 }
 
-static bool telemetry_queue_init(void) {
-  memset(&g_telemetry_queue, 0, sizeof(g_telemetry_queue));
-  g_telemetry_queue.mutex = SDL_CreateMutex(); // Reference: https://wiki.libsdl.org/SDL2/SDL_CreateMutex
-  g_telemetry_queue.cond = SDL_CreateCond();
-  if (!g_telemetry_queue.mutex || !g_telemetry_queue.cond) {
-    if (g_telemetry_queue.mutex) SDL_DestroyMutex(g_telemetry_queue.mutex);
-    if (g_telemetry_queue.cond) SDL_DestroyCond(g_telemetry_queue.cond);
-    memset(&g_telemetry_queue, 0, sizeof(g_telemetry_queue));
+static bool init_queue(TelemetryQueue* queue, const char* name, post_fn_t post_fn) {
+  memset(queue, 0, sizeof(*queue));
+  queue->mutex = SDL_CreateMutex();
+  queue->cond = SDL_CreateCond();
+  if (!queue->mutex || !queue->cond) {
+    if (queue->mutex) SDL_DestroyMutex(queue->mutex);
+    if (queue->cond) SDL_DestroyCond(queue->cond);
+    memset(queue, 0, sizeof(*queue));
     return false;
   }
 
-  g_telemetry_queue.running = true;
-  g_telemetry_queue.thread = SDL_CreateThread(telemetry_worker, "telemetry_worker", &g_telemetry_queue);
-  if (!g_telemetry_queue.thread) {
-    g_telemetry_queue.running = false;
-    SDL_DestroyCond(g_telemetry_queue.cond);
-    SDL_DestroyMutex(g_telemetry_queue.mutex);
-    memset(&g_telemetry_queue, 0, sizeof(g_telemetry_queue));
+  WorkerCtx* ctx = malloc(sizeof(WorkerCtx));
+  if (!ctx) {
+    SDL_DestroyCond(queue->cond);
+    SDL_DestroyMutex(queue->mutex);
+    memset(queue, 0, sizeof(*queue));
+    return false;
+  }
+  ctx->queue = queue;
+  ctx->post_fn = post_fn;
+
+  queue->running = true;
+  queue->thread = SDL_CreateThread(queue_worker, name, ctx);
+  if (!queue->thread) {
+    queue->running = false;
+    free(ctx);
+    SDL_DestroyCond(queue->cond);
+    SDL_DestroyMutex(queue->mutex);
+    memset(queue, 0, sizeof(*queue));
     return false;
   }
 
   return true;
 }
 
-static void telemetry_queue_shutdown(void) {
-  SDL_LockMutex(g_telemetry_queue.mutex);
-  g_telemetry_queue.running = false;
-  SDL_CondSignal(g_telemetry_queue.cond);
-  SDL_UnlockMutex(g_telemetry_queue.mutex);
+static void shutdown_queue(TelemetryQueue* queue) {
+  if (!queue->mutex) return; // never initialized
 
-  if (g_telemetry_queue.thread) {
-    SDL_WaitThread(g_telemetry_queue.thread, NULL);
+  SDL_LockMutex(queue->mutex);
+  queue->running = false;
+  SDL_CondSignal(queue->cond);
+  SDL_UnlockMutex(queue->mutex);
+
+  if (queue->thread) {
+    SDL_WaitThread(queue->thread, NULL);
   }
 
-  SDL_LockMutex(g_telemetry_queue.mutex);
-  while (g_telemetry_queue.count > 0) {
-    char* json = g_telemetry_queue.items[g_telemetry_queue.head];
-    g_telemetry_queue.items[g_telemetry_queue.head] = NULL;
-    g_telemetry_queue.head = (g_telemetry_queue.head + 1) % (int)(sizeof(g_telemetry_queue.items) / sizeof(g_telemetry_queue.items[0]));
-    g_telemetry_queue.count--;
+  SDL_LockMutex(queue->mutex);
+  while (queue->count > 0) {
+    char* json = queue->items[queue->head];
+    queue->items[queue->head] = NULL;
+    queue->head = (queue->head + 1) % (int)(sizeof(queue->items) / sizeof(queue->items[0]));
+    queue->count--;
     free(json);
   }
-  SDL_UnlockMutex(g_telemetry_queue.mutex);
+  SDL_UnlockMutex(queue->mutex);
 
-  SDL_DestroyCond(g_telemetry_queue.cond);
-  SDL_DestroyMutex(g_telemetry_queue.mutex);
-  memset(&g_telemetry_queue, 0, sizeof(g_telemetry_queue));
+  SDL_DestroyCond(queue->cond);
+  SDL_DestroyMutex(queue->mutex);
+  memset(queue, 0, sizeof(*queue));
 }
 
-static void telemetry_enqueue_json(const char* json) {
+static void enqueue_json(TelemetryQueue* queue, const char* label, const char* json) {
   char* copy = strdup(json);
   if (!copy) {
-    fprintf(stderr, "telemetry enqueue failed: out of memory\n");
+    fprintf(stderr, "%s enqueue failed: out of memory\n", label);
     return;
   }
 
-  SDL_LockMutex(g_telemetry_queue.mutex);
-  if (g_telemetry_queue.count == (int)(sizeof(g_telemetry_queue.items) / sizeof(g_telemetry_queue.items[0]))) {
-    SDL_UnlockMutex(g_telemetry_queue.mutex);
-    fprintf(stderr, "telemetry queue full, dropping event\n");
+  SDL_LockMutex(queue->mutex);
+  if (queue->count == (int)(sizeof(queue->items) / sizeof(queue->items[0]))) {
+    SDL_UnlockMutex(queue->mutex);
+    fprintf(stderr, "%s queue full, dropping event\n", label);
     free(copy);
     return;
   }
 
-  g_telemetry_queue.items[g_telemetry_queue.tail] = copy;
-  g_telemetry_queue.tail = (g_telemetry_queue.tail + 1) % (int)(sizeof(g_telemetry_queue.items) / sizeof(g_telemetry_queue.items[0]));
-  g_telemetry_queue.count++;
-  SDL_CondSignal(g_telemetry_queue.cond);
-  SDL_UnlockMutex(g_telemetry_queue.mutex);
+  queue->items[queue->tail] = copy;
+  queue->tail = (queue->tail + 1) % (int)(sizeof(queue->items) / sizeof(queue->items[0]));
+  queue->count++;
+  SDL_CondSignal(queue->cond);
+  SDL_UnlockMutex(queue->mutex);
+}
+
+static void telemetry_enqueue_json(const char* json) {
+  enqueue_json(&g_telemetry_queue, "telemetry", json);
+}
+
+// Map a maze movement (dx,dy) to a robot action and enqueue it
+static void robot_send_move(int dx, int dy) {
+  if (!g_robot_url) return;
+
+  const char* action = NULL;
+  if (dx == 0 && dy == -1)      action = "forward";
+  else if (dx == 0 && dy == 1)  action = "backward";
+  else if (dx == -1 && dy == 0) action = "turn_left";
+  else if (dx == 1 && dy == 0)  action = "turn_right";
+  else return;
+
+  char json[128];
+  snprintf(json, sizeof(json), "{\"action\":\"%s\"}", action);
+  enqueue_json(&g_robot_queue, "robot", json);
 }
 
 // Wall bitmask for each cell
@@ -400,18 +482,26 @@ static void output_json_telemetry(const char* device, int px, int py, bool goal_
   telemetry_enqueue_json(json);
 }
 
+// Send a move to the robot bridge — call after a successful try_move
+static void maybe_send_robot(int dx, int dy) {
+  robot_send_move(dx, dy);
+}
+
 // Handle joystick/controller axis input + emit telemetry on move
 // Returns true after goal reached
 static bool handle_joystick_axis(int axis, Sint16 value, int* px, int* py, bool* joy_moved_x, bool* joy_moved_y, bool* won, SDL_Window* win) {
   bool moved = false;
+  int mdx = 0, mdy = 0;
 
   // X-axis (axis 0 for joystick, SDL_CONTROLLER_AXIS_LEFTX for controller)
   if (axis == 0) {
     if (value < -JOYSTICK_DEADZONE && !*joy_moved_x) {
-      moved = try_move(px, py, -1, 0);
+      mdx = -1; mdy = 0;
+      moved = try_move(px, py, mdx, mdy);
       *joy_moved_x = true;
     } else if (value > JOYSTICK_DEADZONE && !*joy_moved_x) {
-      moved = try_move(px, py, 1, 0);
+      mdx = 1; mdy = 0;
+      moved = try_move(px, py, mdx, mdy);
       *joy_moved_x = true;
     } else if (value > -JOYSTICK_DEADZONE && value < JOYSTICK_DEADZONE) {
       *joy_moved_x = false;
@@ -421,10 +511,12 @@ static bool handle_joystick_axis(int axis, Sint16 value, int* px, int* py, bool*
   // Y-axis (axis 1 for joystick, SDL_CONTROLLER_AXIS_LEFTY for controller)
   if (axis == 1) {
     if (value < -JOYSTICK_DEADZONE && !*joy_moved_y) {
-      moved = try_move(px, py, 0, -1);
+      mdx = 0; mdy = -1;
+      moved = try_move(px, py, mdx, mdy);
       *joy_moved_y = true;
     } else if (value > JOYSTICK_DEADZONE && !*joy_moved_y) {
-      moved = try_move(px, py, 0, 1);
+      mdx = 0; mdy = 1;
+      moved = try_move(px, py, mdx, mdy);
       *joy_moved_y = true;
     } else if (value > -JOYSTICK_DEADZONE && value < JOYSTICK_DEADZONE) {
       *joy_moved_y = false;
@@ -435,6 +527,7 @@ static bool handle_joystick_axis(int axis, Sint16 value, int* px, int* py, bool*
     g_move_sequence++;
     bool goal_reached = (*px == MAZE_W - 1 && *py == MAZE_H - 1);
     output_json_telemetry("joystick", *px, *py, goal_reached);
+    maybe_send_robot(mdx, mdy);
 
     if (goal_reached) {
       *won = true;
@@ -458,6 +551,13 @@ int main(int argc, char** argv) {
     g_telemetry_url = env_url;
   }
   printf("Telemetry URL: %s\n", g_telemetry_url);
+
+  // Robot bridge URL (optional)
+  const char* env_robot = getenv("ROBOT_URL");
+  if (env_robot && strlen(env_robot) > 0) {
+    g_robot_url = env_robot;
+  }
+  printf("Robot URL:     %s\n", g_robot_url ? g_robot_url : "(disabled)");
 
   // mTLS cert path overrides
   const char* env_cc = getenv("CLIENT_CERT");
@@ -483,11 +583,18 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  if (!telemetry_queue_init()) {
+  if (!init_queue(&g_telemetry_queue, "telemetry_worker", post_json_to_server)) {
     fprintf(stderr, "Failed to start telemetry worker\n");
     SDL_Quit();
     curl_global_cleanup();
     return 1;
+  }
+
+  if (g_robot_url) {
+    if (!init_queue(&g_robot_queue, "robot_worker", post_robot_command)) {
+      fprintf(stderr, "Failed to start robot worker (continuing without robot)\n");
+      g_robot_url = NULL; // disable robot commands
+    }
   }
 
   // Enable joystick + game controller events
@@ -582,15 +689,18 @@ int main(int argc, char** argv) {
 
         if (!won) {
           bool moved = false;
-          if (k == SDLK_UP || k == SDLK_w)          moved = try_move(&px, &py, 0, -1);
-          else if (k == SDLK_RIGHT || k == SDLK_d)  moved = try_move(&px, &py, 1, 0);
-          else if (k == SDLK_DOWN || k == SDLK_s)   moved = try_move(&px, &py, 0, 1);
-          else if (k == SDLK_LEFT || k == SDLK_a)   moved = try_move(&px, &py, -1, 0);
+          int mdx = 0, mdy = 0;
+          if (k == SDLK_UP || k == SDLK_w)          { mdx = 0; mdy = -1; }
+          else if (k == SDLK_RIGHT || k == SDLK_d)  { mdx = 1; mdy = 0; }
+          else if (k == SDLK_DOWN || k == SDLK_s)   { mdx = 0; mdy = 1; }
+          else if (k == SDLK_LEFT || k == SDLK_a)   { mdx = -1; mdy = 0; }
+          if (mdx != 0 || mdy != 0) moved = try_move(&px, &py, mdx, mdy);
 
           if (moved) {
             g_move_sequence++;
             bool goal_reached = (px == MAZE_W - 1 && py == MAZE_H - 1);
             output_json_telemetry("keyboard", px, py, goal_reached);
+            maybe_send_robot(mdx, mdy);
 
             if (goal_reached) {
               won = true;
@@ -624,7 +734,8 @@ int main(int argc, char** argv) {
   if (joystick) SDL_JoystickClose(joystick);
   SDL_DestroyRenderer(r);
   SDL_DestroyWindow(win);
-  telemetry_queue_shutdown();
+  if (g_robot_url) shutdown_queue(&g_robot_queue);
+  shutdown_queue(&g_telemetry_queue);
   SDL_Quit();
   curl_global_cleanup();
   return 0;

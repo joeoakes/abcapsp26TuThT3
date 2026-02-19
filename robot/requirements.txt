@@ -1,0 +1,6 @@
+# robot_bridge.py dependencies
+#
+# ROS2 Python packages (rclpy, geometry_msgs) are provided by ROS2 —
+# install via: sudo apt install ros-<distro>-geometry-msgs
+#
+# Everything else is Python standard library (http.server, ssl, json, threading).
