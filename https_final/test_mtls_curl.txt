@@ -1,0 +1,19 @@
+# https_final one-line test commands
+
+# 1) Health
+curl --cacert certs/ca.crt --cert certs/client.crt --key certs/client.key https://localhost:8445/health
+
+# 2) Telemetry insert -> Mongo
+curl --cacert certs/ca.crt --cert certs/client.crt --key certs/client.key -X POST https://localhost:8445/move -H "Content-Type: application/json" -d '{"event_type":"player_move","session_id":"S1","input":{"device":"keyboard","move_sequence":1},"player":{"position":{"x":1,"y":0}},"goal_reached":false,"timestamp":"2026-02-17T12:00:00Z"}'
+
+# 3) Telemetry read <- Mongo
+curl --cacert certs/ca.crt --cert certs/client.crt --key certs/client.key "https://localhost:8445/moves?limit=10&sort=desc"
+
+# 4) Mission insert -> Redis
+curl --cacert certs/ca.crt --cert certs/client.crt --key certs/client.key -X POST https://localhost:8445/mission -H "Content-Type: application/json" -d '{"mission_id":"TEST_MISSION","robot_id":"TEST_ROBOT","mission_type":"patrol","start_time":1770056813,"end_time":1770056848,"moves_left_turn":46,"moves_right_turn":46,"moves_straight":52,"moves_reverse":8,"moves_total":152,"distance_traveled":24.41,"duration_seconds":35,"mission_result":"success","abort_reason":"user exited"}'
+
+# 5) Mission read <- Redis (API)
+curl --cacert certs/ca.crt --cert certs/client.crt --key certs/client.key "https://localhost:8445/mission?mission_id=TEST_MISSION"
+
+# 6) Mission read <- Redis (direct)
+redis-cli HGETALL team3ttmission:TEST_MISSION
