@@ -30,8 +30,8 @@ static const char* g_client_cert = "../https/certs/client.crt";
 static const char* g_client_key  = "../https/certs/client.key";
 static const char* g_ca_cert     = "../https/certs/ca.crt";
 
-// Robot bridge endpoint (disabled when NULL; set via ROBOT_URL env var)
-// Example: ROBOT_URL="https://10.170.8.120:8446/robot" ./maze_sdl2
+// Change env var to match the Mini-Pupper IP:
+// ROBOT_URL="https://10.170.9.185:8446/robot" ./maze_sdl2
 static const char* g_robot_url = NULL;
 
 // Session state for JSON telemetry

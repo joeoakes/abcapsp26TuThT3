@@ -5,3 +5,6 @@ maze/maze_sdl2
 
 # Object files
 *.o
+
+# TLS certificates and private keys
+certs/
