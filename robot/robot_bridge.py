@@ -10,7 +10,7 @@ Usage:
     python3 robot_bridge.py
 
 Environment variables:
-    ROBOT_PORT      — HTTPS listen port          (default: 8446)
+    ROBOT_PORT      — HTTPS listen port          (default: 8443)
     SPEED           — linear.x magnitude m/s     (default: 0.5)
     TURN_SPEED      — angular.z magnitude rad/s  (default: 1.0)
     MOVE_DURATION   — seconds per movement burst  (default: 0.5)
@@ -32,10 +32,8 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 
-# ---------------------------------------------------------------------------
 # Configuration (override via environment variables)
-# ---------------------------------------------------------------------------
-ROBOT_PORT    = int(os.environ.get("ROBOT_PORT", "8446"))
+ROBOT_PORT    = int(os.environ.get("ROBOT_PORT", "8443"))
 SPEED         = float(os.environ.get("SPEED", "0.5"))
 TURN_SPEED    = float(os.environ.get("TURN_SPEED", "1.0"))
 MOVE_DURATION = float(os.environ.get("MOVE_DURATION", "0.5"))
@@ -44,9 +42,7 @@ KEY_FILE      = os.environ.get("KEY_FILE", "certs/server.key")
 
 # TODO: Add mTLS client-certificate verification (currently self-signed HTTPS only)
 
-# ---------------------------------------------------------------------------
 # ROS2 publisher (singleton, created in main)
-# ---------------------------------------------------------------------------
 _ros_node = None       # type: Node | None
 _cmd_pub  = None       # type: rclpy.publisher.Publisher | None
 _move_lock = threading.Lock()
@@ -94,9 +90,7 @@ def execute_action(action: str) -> None:
             _stop()
 
 
-# ---------------------------------------------------------------------------
 # HTTPS request handler
-# ---------------------------------------------------------------------------
 class RobotHandler(BaseHTTPRequestHandler):
     """Handle POST /robot commands from the maze client."""
 
@@ -135,13 +129,10 @@ class RobotHandler(BaseHTTPRequestHandler):
         print(f"[bridge] {args[0]} {args[1]} {args[2]}")
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 def main():
     global _ros_node, _cmd_pub
 
-    # --- ROS2 init ---
+    # ROS2 init
     rclpy.init()
     _ros_node = Node("maze_robot_bridge")
     _cmd_pub = _ros_node.create_publisher(Twist, "cmd_vel", 10)
@@ -151,7 +142,7 @@ def main():
     ros_thread = threading.Thread(target=rclpy.spin, args=(_ros_node,), daemon=True)
     ros_thread.start()
 
-    # --- HTTPS server ---
+    # HTTPS server
     server = HTTPServer(("0.0.0.0", ROBOT_PORT), RobotHandler)
 
     # Wrap socket with TLS
