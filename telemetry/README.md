@@ -2,41 +2,41 @@
 
 This project implements a telemetry pipeline for the Maze SDL2 application. 
 
-This system consists of: 
+## System Components
 
-**Client:** `maze/maze_sdl2.c` 
+## Client: `maze/maze_sdl2.c` 
 
-Generates JSON telemetry for player move events 
+-Generates JSON telemetry for player move events 
 
-Generates mission summary payloads 
+-Generates mission summary payloads 
 
-Sends data via HTTPS using libcurl 
+-Sends data via HTTPS using libcurl 
+
+---
+
+## Logging Server: `https/maze_https_mongo.c` 
+
+-HTTPS server with mTLS 
+
+-Port: 8445 
+
+-Receives telemetry from maze client at `POST /move` 
+
+-Stores telemetry in MongoDB 
 
  
 
-**Logging Server:** `https/maze_https_mongo.c` 
+## Mini-Pupper Server: `robot/robot_bridge.py` 
 
-HTTPS server with mTLS 
+-HTTPS server with mTLS 
 
-Port: 8445 
+-Port: 8445 
 
-Receives telemetry from maze client at `POST /move` 
+-Receives telemetry from maze client at `POST /robot` 
 
-Stores telemetry in MongoDB 
+-Executes corresponding action with A Twist command 
 
- 
-
-**Mini-Pupper Server:** `robot/robot_bridge.py` 
-
-HTTPS server with mTLS 
-
-Port: 8445 
-
-Receives telemetry from maze client at `POST /robot` 
-
-Executes corresponding action with A Twist command 
-
-Publishes the Twist command to `/cmd_vel` to move the Mini-Pupper 
+-Publishes the Twist command to `/cmd_vel` to move the Mini-Pupper 
 
  
 
@@ -117,3 +117,4 @@ Example Mini-Pupper CURL command (move forward 1 unit):
     "abort_reason": "user exited" 
 
   } 
+
