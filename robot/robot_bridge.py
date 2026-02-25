@@ -10,7 +10,7 @@ Usage:
     python3 robot_bridge.py
 
 Environment variables:
-    ROBOT_PORT      — HTTPS listen port          (default: 8443)
+    ROBOT_PORT      — HTTPS listen port          (default: 8445)
     SPEED           — linear.x magnitude m/s     (default: 0.5)
     TURN_SPEED      — angular.z magnitude rad/s  (default: 1.0)
     MOVE_DURATION   — seconds per movement burst  (default: 0.5)
@@ -33,7 +33,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist
 
 # Configuration (override via environment variables)
-ROBOT_PORT    = int(os.environ.get("ROBOT_PORT", "8443"))
+ROBOT_PORT    = int(os.environ.get("ROBOT_PORT", "8445"))
 SPEED         = float(os.environ.get("SPEED", "0.5"))
 TURN_SPEED    = float(os.environ.get("TURN_SPEED", "1.0"))
 MOVE_DURATION = float(os.environ.get("MOVE_DURATION", "0.5"))

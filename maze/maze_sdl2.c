@@ -31,7 +31,7 @@ static const char* g_client_key  = "../https/certs/client.key";
 static const char* g_ca_cert     = "../https/certs/ca.crt";
 
 // Change env var to match the Mini-Pupper IP:
-// ROBOT_URL="https://10.170.9.185:8443/robot" ./maze_sdl2
+// ROBOT_URL="https://10.170.9.185:8445/robot" ./maze_sdl2
 static const char* g_robot_url = NULL;
 
 // Session state for JSON telemetry

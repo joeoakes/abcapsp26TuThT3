@@ -20,7 +20,7 @@ python3 robot_bridge.py
 
 | Variable        | Default             | Description                          |
 |-----------------|---------------------|--------------------------------------|
-| `ROBOT_PORT`    | `8443`              | HTTPS listen port                    |
+| `ROBOT_PORT`    | `8445`              | HTTPS listen port                    |
 | `SPEED`         | `0.5`               | Linear velocity (m/s)                |
 | `TURN_SPEED`    | `1.0`               | Angular velocity (rad/s)             |
 | `MOVE_DURATION` | `0.5`               | Seconds per movement burst           |
@@ -31,7 +31,7 @@ python3 robot_bridge.py
 
 ```bash
 # POST a test command
-curl -k -X POST https://localhost:8443/robot -H "Content-Type: application/json" -d '{"action":"forward"}'
+curl -k -X POST https://localhost:8445/robot -H "Content-Type: application/json" -d '{"action":"forward"}'
 
 # Can also watch for cmd_vel in another terminal
 ros2 topic echo /cmd_vel
@@ -52,7 +52,7 @@ ros2 topic echo /cmd_vel
 On the machine running `maze_sdl2`, set the robot URL:
 
 ```bash
-export ROBOT_URL="https://10.170.9.185:8443/robot"
+export ROBOT_URL="https://10.170.9.185:8445/robot"
 ./maze_sdl2
 ```
 
