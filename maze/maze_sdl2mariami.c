@@ -1,6 +1,10 @@
 // maze_sdl2.c
 // Simple SDL2 maze: generate (DFS backtracker), draw, move player to goal.
 // Controls: Arrow keys, WASD, or analog stick. R = regenerate. Esc = quit.
+//
+// Telemetry: on session end (win or Esc), POSTs a mission summary JSON to
+// the Redis-backed HTTPS server at TELEMETRY_URL (default: https://localhost:8445/mission).
+// Per-move events are also still POSTed to /move if you want both.
 
 #include <SDL2/SDL.h>
 #include <stdbool.h>
@@ -17,13 +21,16 @@
 #define CELL   32   // pixels per cell
 #define PAD    16   // window padding around maze
 
-// Joystick dead zone threshold (0–32767 range)
+// Joystick dead zone threshold (0-32767 range)
 #define JOYSTICK_DEADZONE 8000
 
-// Default HTTP server endpoint for telemetry
-// Run with: `TELEMETRY_URL="http://172.24.205.173:8080/move" ./maze_sdl2`
-// On WSL: `export MONGO_URI="mongodb://172.21.128.1:27017"`, then `./maze_http_mongo`
-static const char* g_telemetry_url = "https://localhost:8445/move";
+// Default HTTP server endpoint for telemetry (mission summary)
+// Run with: TELEMETRY_URL="https://172.24.205.173:8445/mission" ./maze_sdl2
+static const char* g_telemetry_url = "https://localhost:8445/mission";
+
+// Per-move endpoint (optional second queue — set to NULL to disable)
+// Set MOVE_URL env var to enable per-move telemetry alongside mission summary.
+static const char* g_move_url = NULL;
 
 // mTLS client certificate paths (override via CLIENT_CERT, CLIENT_KEY, CA_CERT)
 static const char* g_client_cert = "../https/certs/client.crt";
@@ -35,8 +42,19 @@ static const char* g_ca_cert     = "../https/certs/ca.crt";
 static const char* g_robot_url = NULL;
 
 // Session state for JSON telemetry
-static char g_session_id[40];
-static int  g_move_sequence = 0;
+static char   g_session_id[40];
+static int    g_move_sequence = 0;
+static time_t g_session_start = 0;
+
+// Move counters for mission summary
+static int g_moves_left  = 0;   // dx=-1  -> turn_left
+static int g_moves_right = 0;   // dx=+1  -> turn_right
+static int g_moves_up    = 0;   // dy=-1  -> straight/forward
+static int g_moves_down  = 0;   // dy=+1  -> reverse/backward
+
+// -----------------------------------------------------------------------
+// Queue
+// -----------------------------------------------------------------------
 
 typedef struct {
   char* items[256];
@@ -45,11 +63,12 @@ typedef struct {
   int count;
   bool running;
   SDL_mutex* mutex;
-  SDL_cond* cond;
+  SDL_cond*  cond;
   SDL_Thread* thread;
 } TelemetryQueue;
 
-static TelemetryQueue g_telemetry_queue;
+static TelemetryQueue g_telemetry_queue;  // mission summary queue
+static TelemetryQueue g_move_queue;       // per-move queue (optional)
 static TelemetryQueue g_robot_queue;
 
 // Discard curl response body
@@ -58,8 +77,11 @@ static size_t discard_response(void* ptr, size_t size, size_t nmemb, void* userd
   return size * nmemb;
 }
 
-// POST JSON string to the telemetry server
-static void post_json_to_server(const char* json) {
+// -----------------------------------------------------------------------
+// Generic mTLS POST helper
+// -----------------------------------------------------------------------
+
+static void post_json_to_url(const char* url, const char* json) {
   CURL* curl = curl_easy_init();
   if (!curl) {
     fprintf(stderr, "curl_easy_init failed\n");
@@ -69,50 +91,52 @@ static void post_json_to_server(const char* json) {
   struct curl_slist* headers = NULL;
   headers = curl_slist_append(headers, "Content-Type: application/json");
 
-  curl_easy_setopt(curl, CURLOPT_URL, g_telemetry_url);
-  curl_easy_setopt(curl, CURLOPT_POST, 1L);
-  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json);
-  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+  curl_easy_setopt(curl, CURLOPT_URL,           url);
+  curl_easy_setopt(curl, CURLOPT_POST,          1L);
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDS,    json);
+  curl_easy_setopt(curl, CURLOPT_HTTPHEADER,    headers);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, discard_response);
-  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L); // 2 second timeout
-  //curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
-  // mTLS: present client cert, verify server cert via CA
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT,       5L);
+  // mTLS
   curl_easy_setopt(curl, CURLOPT_SSLCERT,        g_client_cert);
   curl_easy_setopt(curl, CURLOPT_SSLKEY,         g_client_key);
   curl_easy_setopt(curl, CURLOPT_CAINFO,         g_ca_cert);
   curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
   curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 1L);
-  
+
   CURLcode res = curl_easy_perform(curl);
   if (res != CURLE_OK) {
-    fprintf(stderr, "curl POST failed: %s\n", curl_easy_strerror(res));
+    fprintf(stderr, "curl POST to %s failed: %s\n", url, curl_easy_strerror(res));
   }
 
   curl_slist_free_all(headers);
   curl_easy_cleanup(curl);
 }
 
-// POST a robot command JSON to the Mini-Pupper bridge
+// Wrappers bound to specific URLs (used as queue post_fn callbacks)
+static void post_mission_json(const char* json) {
+  post_json_to_url(g_telemetry_url, json);
+}
+
+static void post_move_json(const char* json) {
+  if (g_move_url) post_json_to_url(g_move_url, json);
+}
+
 static void post_robot_command(const char* json) {
   if (!g_robot_url) return;
 
   CURL* curl = curl_easy_init();
-  if (!curl) {
-    fprintf(stderr, "robot curl_easy_init failed\n");
-    return;
-  }
+  if (!curl) return;
 
   struct curl_slist* headers = NULL;
   headers = curl_slist_append(headers, "Content-Type: application/json");
 
-  curl_easy_setopt(curl, CURLOPT_URL, g_robot_url);
-  curl_easy_setopt(curl, CURLOPT_POST, 1L);
-  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json);
-  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+  curl_easy_setopt(curl, CURLOPT_URL,           g_robot_url);
+  curl_easy_setopt(curl, CURLOPT_POST,          1L);
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDS,    json);
+  curl_easy_setopt(curl, CURLOPT_HTTPHEADER,    headers);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, discard_response);
-  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L);
-  // Self-signed HTTPS on robot: skip peer verification for now
-  // TODO: add mTLS or CA verification for robot link
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT,       2L);
   curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
   curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
@@ -125,7 +149,10 @@ static void post_robot_command(const char* json) {
   curl_easy_cleanup(curl);
 }
 
-// Generic queue worker — calls post_fn for each dequeued JSON string
+// -----------------------------------------------------------------------
+// Queue implementation
+// -----------------------------------------------------------------------
+
 typedef void (*post_fn_t)(const char*);
 
 typedef struct {
@@ -134,15 +161,14 @@ typedef struct {
 } WorkerCtx;
 
 static int queue_worker(void* userdata) {
-  WorkerCtx* ctx = (WorkerCtx*)userdata;
+  WorkerCtx* ctx       = (WorkerCtx*)userdata;
   TelemetryQueue* queue = ctx->queue;
-  post_fn_t post_fn = ctx->post_fn;
+  post_fn_t post_fn    = ctx->post_fn;
 
   while (true) {
     SDL_LockMutex(queue->mutex);
-    while (queue->count == 0 && queue->running) {
+    while (queue->count == 0 && queue->running)
       SDL_CondWait(queue->cond, queue->mutex);
-    }
 
     if (queue->count == 0 && !queue->running) {
       SDL_UnlockMutex(queue->mutex);
@@ -155,10 +181,7 @@ static int queue_worker(void* userdata) {
     queue->count--;
     SDL_UnlockMutex(queue->mutex);
 
-    if (json) {
-      post_fn(json);
-      free(json);
-    }
+    if (json) { post_fn(json); free(json); }
   }
 
   free(ctx);
@@ -168,10 +191,10 @@ static int queue_worker(void* userdata) {
 static bool init_queue(TelemetryQueue* queue, const char* name, post_fn_t post_fn) {
   memset(queue, 0, sizeof(*queue));
   queue->mutex = SDL_CreateMutex();
-  queue->cond = SDL_CreateCond();
+  queue->cond  = SDL_CreateCond();
   if (!queue->mutex || !queue->cond) {
     if (queue->mutex) SDL_DestroyMutex(queue->mutex);
-    if (queue->cond) SDL_DestroyCond(queue->cond);
+    if (queue->cond)  SDL_DestroyCond(queue->cond);
     memset(queue, 0, sizeof(*queue));
     return false;
   }
@@ -183,11 +206,11 @@ static bool init_queue(TelemetryQueue* queue, const char* name, post_fn_t post_f
     memset(queue, 0, sizeof(*queue));
     return false;
   }
-  ctx->queue = queue;
+  ctx->queue   = queue;
   ctx->post_fn = post_fn;
 
   queue->running = true;
-  queue->thread = SDL_CreateThread(queue_worker, name, ctx);
+  queue->thread  = SDL_CreateThread(queue_worker, name, ctx);
   if (!queue->thread) {
     queue->running = false;
     free(ctx);
@@ -196,21 +219,18 @@ static bool init_queue(TelemetryQueue* queue, const char* name, post_fn_t post_f
     memset(queue, 0, sizeof(*queue));
     return false;
   }
-
   return true;
 }
 
 static void shutdown_queue(TelemetryQueue* queue) {
-  if (!queue->mutex) return; // never initialized
+  if (!queue->mutex) return;
 
   SDL_LockMutex(queue->mutex);
   queue->running = false;
   SDL_CondSignal(queue->cond);
   SDL_UnlockMutex(queue->mutex);
 
-  if (queue->thread) {
-    SDL_WaitThread(queue->thread, NULL);
-  }
+  if (queue->thread) SDL_WaitThread(queue->thread, NULL);
 
   SDL_LockMutex(queue->mutex);
   while (queue->count > 0) {
@@ -229,10 +249,7 @@ static void shutdown_queue(TelemetryQueue* queue) {
 
 static void enqueue_json(TelemetryQueue* queue, const char* label, const char* json) {
   char* copy = strdup(json);
-  if (!copy) {
-    fprintf(stderr, "%s enqueue failed: out of memory\n", label);
-    return;
-  }
+  if (!copy) { fprintf(stderr, "%s enqueue failed: out of memory\n", label); return; }
 
   SDL_LockMutex(queue->mutex);
   if (queue->count == (int)(sizeof(queue->items) / sizeof(queue->items[0]))) {
@@ -241,7 +258,6 @@ static void enqueue_json(TelemetryQueue* queue, const char* label, const char* j
     free(copy);
     return;
   }
-
   queue->items[queue->tail] = copy;
   queue->tail = (queue->tail + 1) % (int)(sizeof(queue->items) / sizeof(queue->items[0]));
   queue->count++;
@@ -249,19 +265,18 @@ static void enqueue_json(TelemetryQueue* queue, const char* label, const char* j
   SDL_UnlockMutex(queue->mutex);
 }
 
-static void telemetry_enqueue_json(const char* json) {
-  enqueue_json(&g_telemetry_queue, "telemetry", json);
-}
+// -----------------------------------------------------------------------
+// Robot
+// -----------------------------------------------------------------------
 
-// Map a maze movement (dx,dy) to a robot action and enqueue it
 static void robot_send_move(int dx, int dy) {
   if (!g_robot_url) return;
 
   const char* action = NULL;
-  if (dx == 0 && dy == -1)      action = "forward";
-  else if (dx == 0 && dy == 1)  action = "backward";
-  else if (dx == -1 && dy == 0) action = "turn_left";
-  else if (dx == 1 && dy == 0)  action = "turn_right";
+  if      (dx == 0  && dy == -1) action = "forward";
+  else if (dx == 0  && dy == 1)  action = "backward";
+  else if (dx == -1 && dy == 0)  action = "turn_left";
+  else if (dx == 1  && dy == 0)  action = "turn_right";
   else return;
 
   char json[128];
@@ -269,51 +284,40 @@ static void robot_send_move(int dx, int dy) {
   enqueue_json(&g_robot_queue, "robot", json);
 }
 
-// Wall bitmask for each cell
+// -----------------------------------------------------------------------
+// Maze generation
+// -----------------------------------------------------------------------
+
 enum { WALL_N = 1, WALL_E = 2, WALL_S = 4, WALL_W = 8 };
 
-typedef struct {
-  uint8_t walls;
-  bool visited;
-} Cell;
-
+typedef struct { uint8_t walls; bool visited; } Cell;
 static Cell g[MAZE_H][MAZE_W];
 
 static inline bool in_bounds(int x, int y) {
   return (x >= 0 && x < MAZE_W && y >= 0 && y < MAZE_H);
 }
 
-// Remove wall between (x,y) and (nx,ny)
 static void knock_down(int x, int y, int nx, int ny) {
-  if (nx == x && ny == y - 1) { // N
-    g[y][x].walls &= ~WALL_N;
-    g[ny][nx].walls &= ~WALL_S;
-  } else if (nx == x + 1 && ny == y) { // E
-    g[y][x].walls &= ~WALL_E;
-    g[ny][nx].walls &= ~WALL_W;
-  } else if (nx == x && ny == y + 1) { // S
-    g[y][x].walls &= ~WALL_S;
-    g[ny][nx].walls &= ~WALL_N;
-  } else if (nx == x - 1 && ny == y) { // W
-    g[y][x].walls &= ~WALL_W;
-    g[ny][nx].walls &= ~WALL_E;
-  }
+  if      (nx == x && ny == y - 1) { g[y][x].walls &= ~WALL_N; g[ny][nx].walls &= ~WALL_S; }
+  else if (nx == x + 1 && ny == y) { g[y][x].walls &= ~WALL_E; g[ny][nx].walls &= ~WALL_W; }
+  else if (nx == x && ny == y + 1) { g[y][x].walls &= ~WALL_S; g[ny][nx].walls &= ~WALL_N; }
+  else if (nx == x - 1 && ny == y) { g[y][x].walls &= ~WALL_W; g[ny][nx].walls &= ~WALL_E; }
 }
 
 static void maze_init(void) {
-  for (int y = 0; y < MAZE_H; y++) {
+  for (int y = 0; y < MAZE_H; y++)
     for (int x = 0; x < MAZE_W; x++) {
-      g[y][x].walls = WALL_N | WALL_E | WALL_S | WALL_W;
+      g[y][x].walls   = WALL_N | WALL_E | WALL_S | WALL_W;
       g[y][x].visited = false;
     }
-  }
 }
 
-// Iterative DFS "recursive backtracker"
 static void maze_generate(int sx, int sy) {
   typedef struct { int x, y; } P;
   P stack[MAZE_W * MAZE_H];
   int top = 0;
+  const int dx[4] = { 0, 1, 0, -1 };
+  const int dy[4] = { -1, 0, 1, 0 };
 
   g[sy][sx].visited = true;
   stack[top++] = (P){sx, sy};
@@ -321,64 +325,39 @@ static void maze_generate(int sx, int sy) {
   while (top > 0) {
     P cur = stack[top - 1];
     int x = cur.x, y = cur.y;
-
-    // Collect unvisited neighbors
-    P neigh[4];
-    int ncount = 0;
-
-    const int dx[4] = { 0, 1, 0, -1 };
-    const int dy[4] = { -1, 0, 1, 0 };
-
+    P neigh[4]; int ncount = 0;
     for (int i = 0; i < 4; i++) {
       int nx = x + dx[i], ny = y + dy[i];
-      if (in_bounds(nx, ny) && !g[ny][nx].visited) {
+      if (in_bounds(nx, ny) && !g[ny][nx].visited)
         neigh[ncount++] = (P){nx, ny};
-      }
     }
-
-    if (ncount == 0) {
-      // backtrack
-      top--;
-      continue;
-    }
-
-    // choose random neighbor
+    if (ncount == 0) { top--; continue; }
     int pick = rand() % ncount;
     int nx = neigh[pick].x, ny = neigh[pick].y;
-
-    // carve passage
     knock_down(x, y, nx, ny);
     g[ny][nx].visited = true;
     stack[top++] = (P){nx, ny};
   }
 
-  // Clear visited flags so we can reuse for other logic later if needed
   for (int y = 0; y < MAZE_H; y++)
     for (int x = 0; x < MAZE_W; x++)
       g[y][x].visited = false;
 }
 
-// Draw maze walls as lines
+// -----------------------------------------------------------------------
+// Rendering
+// -----------------------------------------------------------------------
+
 static void draw_maze(SDL_Renderer* r) {
-  // Background
   SDL_SetRenderDrawColor(r, 15, 15, 18, 255);
   SDL_RenderClear(r);
-
-  // Maze lines
   SDL_SetRenderDrawColor(r, 230, 230, 230, 255);
-
-  int ox = PAD;
-  int oy = PAD;
-
+  int ox = PAD, oy = PAD;
   for (int y = 0; y < MAZE_H; y++) {
     for (int x = 0; x < MAZE_W; x++) {
-      int x0 = ox + x * CELL;
-      int y0 = oy + y * CELL;
-      int x1 = x0 + CELL;
-      int y1 = y0 + CELL;
-
+      int x0 = ox + x * CELL, y0 = oy + y * CELL;
+      int x1 = x0 + CELL,     y1 = y0 + CELL;
       uint8_t w = g[y][x].walls;
-
       if (w & WALL_N) SDL_RenderDrawLine(r, x0, y0, x1, y0);
       if (w & WALL_E) SDL_RenderDrawLine(r, x1, y0, x1, y1);
       if (w & WALL_S) SDL_RenderDrawLine(r, x0, y1, x1, y1);
@@ -387,58 +366,35 @@ static void draw_maze(SDL_Renderer* r) {
   }
 }
 
-// Player / goal rendering
 static void draw_player_goal(SDL_Renderer* r, int px, int py) {
-  int ox = PAD;
-  int oy = PAD;
-
-  // Goal cell highlight
-  SDL_Rect goal = {
-    ox + (MAZE_W - 1) * CELL + 6,
-    oy + (MAZE_H - 1) * CELL + 6,
-    CELL - 12,
-    CELL - 12
-  };
+  int ox = PAD, oy = PAD;
+  SDL_Rect goal = { ox + (MAZE_W-1)*CELL+6, oy + (MAZE_H-1)*CELL+6, CELL-12, CELL-12 };
   SDL_SetRenderDrawColor(r, 40, 160, 70, 255);
   SDL_RenderFillRect(r, &goal);
-
-  // Player
-  SDL_Rect p = {
-    ox + px * CELL + 8,
-    oy + py * CELL + 8,
-    CELL - 16,
-    CELL - 16
-  };
+  SDL_Rect p = { ox + px*CELL+8, oy + py*CELL+8, CELL-16, CELL-16 };
   SDL_SetRenderDrawColor(r, 230, 200, 40, 255);
   SDL_RenderFillRect(r, &p);
 }
 
-// Attempt to move player; returns true if moved
+// -----------------------------------------------------------------------
+// Player movement
+// -----------------------------------------------------------------------
+
 static bool try_move(int* px, int* py, int dx, int dy) {
-  int x = *px, y = *py;
-  int nx = x + dx, ny = y + dy;
+  int x = *px, y = *py, nx = x + dx, ny = y + dy;
   if (!in_bounds(nx, ny)) return false;
-
   uint8_t w = g[y][x].walls;
-
-  // Blocked by wall?
-  if (dx == 0 && dy == -1 && (w & WALL_N)) return false;
-  if (dx == 1 && dy == 0  && (w & WALL_E)) return false;
-  if (dx == 0 && dy == 1  && (w & WALL_S)) return false;
-  if (dx == -1 && dy == 0 && (w & WALL_W)) return false;
-
-  *px = nx;
-  *py = ny;
+  if (dx == 0  && dy == -1 && (w & WALL_N)) return false;
+  if (dx == 1  && dy == 0  && (w & WALL_E)) return false;
+  if (dx == 0  && dy == 1  && (w & WALL_S)) return false;
+  if (dx == -1 && dy == 0  && (w & WALL_W)) return false;
+  *px = nx; *py = ny;
   return true;
 }
 
-static void regenerate(int* px, int* py, SDL_Window* win) {
-  maze_init();
-  maze_generate(0, 0);
-  *px = 0; *py = 0;
-  g_move_sequence = 0; // Reset move sequence on maze regeneration
-  SDL_SetWindowTitle(win, "SDL2 Maze - Reach the green goal (R to regenerate)");
-}
+// -----------------------------------------------------------------------
+// Session helpers
+// -----------------------------------------------------------------------
 
 static void generate_session_id(void) {
   uuid_t uuid;
@@ -446,91 +402,155 @@ static void generate_session_id(void) {
   uuid_unparse_lower(uuid, g_session_id);
 }
 
-// Get current timestamp in ISO 8601 format (UTC)
 static void get_iso8601_timestamp(char* buf, size_t size) {
   time_t now = time(NULL);
   struct tm* gm = gmtime(&now);
   strftime(buf, size, "%Y-%m-%dT%H:%M:%SZ", gm);
 }
 
-static void output_json_telemetry(const char* device, int px, int py, bool goal_reached) {
+// Reset all per-session counters (call on new game / regenerate)
+static void reset_session_stats(void) {
+  g_move_sequence = 0;
+  g_moves_left    = 0;
+  g_moves_right   = 0;
+  g_moves_up      = 0;
+  g_moves_down    = 0;
+  g_session_start = time(NULL);
+}
+
+// -----------------------------------------------------------------------
+// Telemetry: per-move event (optional, sent to g_move_url)
+// -----------------------------------------------------------------------
+
+static void emit_move_telemetry(const char* device, int px, int py, bool goal_reached) {
   char timestamp[32];
   get_iso8601_timestamp(timestamp, sizeof(timestamp));
 
   char json[1024];
   snprintf(json, sizeof(json),
-    "{\n"
-    "  \"session_id\": \"%s\",\n"
-    "  \"event_type\": \"player_move\",\n"
-    "  \"input\": {\n"
-    "    \"device\": \"%s\",\n"
-    "    \"move_sequence\": %d\n"
-    "  },\n"
-    "  \"player\": {\n"
-    "    \"position\": { \"x\": %d, \"y\": %d }\n"
-    "  },\n"
-    "  \"goal_reached\": %s,\n"
-    "  \"timestamp\": \"%s\"\n"
-    "}\n",
+    "{"
+    "\"session_id\":\"%s\","
+    "\"event_type\":\"player_move\","
+    "\"input\":{\"device\":\"%s\",\"move_sequence\":%d},"
+    "\"player\":{\"position\":{\"x\":%d,\"y\":%d}},"
+    "\"goal_reached\":%s,"
+    "\"timestamp\":\"%s\""
+    "}",
     g_session_id, device, g_move_sequence, px, py,
     goal_reached ? "true" : "false", timestamp);
 
-  printf("%s", json);
+  printf("%s\n", json);
   fflush(stdout);
 
-  // Enqueue for worker thread
-  //telemetry_enqueue_json(json);
+  // Optional per-move HTTP POST
+  if (g_move_url) enqueue_json(&g_move_queue, "move", json);
 }
 
-// Send a move to the robot bridge — call after a successful try_move
-static void maybe_send_robot(int dx, int dy) {
-  robot_send_move(dx, dy);
+// -----------------------------------------------------------------------
+// Telemetry: mission summary (sent to Redis server at g_telemetry_url)
+// -----------------------------------------------------------------------
+
+static void post_mission_summary(const char* result, const char* abort_reason) {
+  time_t now          = time(NULL);
+  int64_t start_ts    = (int64_t)g_session_start;
+  int64_t end_ts      = (int64_t)now;
+  int64_t duration    = end_ts - start_ts;
+  if (duration < 0) duration = 0;
+
+  int total = g_moves_left + g_moves_right + g_moves_up + g_moves_down;
+  // Distance: each cell = 1 unit, diagonal not possible, so total moves = distance
+  double distance = (double)total;
+
+  char json[1024];
+  snprintf(json, sizeof(json),
+    "{"
+    "\"mission_id\":\"%s\","
+    "\"robot_id\":\"maze_player\","
+    "\"mission_type\":\"maze\","
+    "\"start_time\":%lld,"
+    "\"end_time\":%lld,"
+    "\"moves_left_turn\":%d,"
+    "\"moves_right_turn\":%d,"
+    "\"moves_straight\":%d,"
+    "\"moves_reverse\":%d,"
+    "\"moves_total\":%d,"
+    "\"distance_traveled\":%.6f,"
+    "\"duration_seconds\":%lld,"
+    "\"mission_result\":\"%s\","
+    "\"abort_reason\":\"%s\""
+    "}",
+    g_session_id,
+    (long long)start_ts,
+    (long long)end_ts,
+    g_moves_left,
+    g_moves_right,
+    g_moves_up,
+    g_moves_down,
+    total,
+    distance,
+    (long long)duration,
+    result,
+    abort_reason ? abort_reason : "");
+
+  printf("[mission summary] %s\n", json);
+  fflush(stdout);
+
+  enqueue_json(&g_telemetry_queue, "telemetry", json);
 }
 
-// Handle joystick/controller axis input + emit telemetry on move
-// Returns true after goal reached
-static bool handle_joystick_axis(int axis, Sint16 value, int* px, int* py, bool* joy_moved_x, bool* joy_moved_y, bool* won, SDL_Window* win) {
+// -----------------------------------------------------------------------
+// Regenerate maze + new session
+// -----------------------------------------------------------------------
+
+static void regenerate(int* px, int* py, SDL_Window* win) {
+  maze_init();
+  maze_generate(0, 0);
+  *px = 0; *py = 0;
+  generate_session_id();
+  reset_session_stats();
+  SDL_SetWindowTitle(win, "SDL2 Maze - Reach the green goal (R to regenerate)");
+}
+
+// -----------------------------------------------------------------------
+// Move handling with counter updates
+// -----------------------------------------------------------------------
+
+static void update_move_counters(int dx, int dy) {
+  if      (dx == -1) g_moves_left++;
+  else if (dx == 1)  g_moves_right++;
+  else if (dy == -1) g_moves_up++;
+  else if (dy == 1)  g_moves_down++;
+}
+
+static bool handle_joystick_axis(int axis, Sint16 value,
+                                  int* px, int* py,
+                                  bool* joy_moved_x, bool* joy_moved_y,
+                                  bool* won, SDL_Window* win)
+{
   bool moved = false;
   int mdx = 0, mdy = 0;
 
-  // X-axis (axis 0 for joystick, SDL_CONTROLLER_AXIS_LEFTX for controller)
   if (axis == 0) {
-    if (value < -JOYSTICK_DEADZONE && !*joy_moved_x) {
-      mdx = -1; mdy = 0;
-      moved = try_move(px, py, mdx, mdy);
-      *joy_moved_x = true;
-    } else if (value > JOYSTICK_DEADZONE && !*joy_moved_x) {
-      mdx = 1; mdy = 0;
-      moved = try_move(px, py, mdx, mdy);
-      *joy_moved_x = true;
-    } else if (value > -JOYSTICK_DEADZONE && value < JOYSTICK_DEADZONE) {
-      *joy_moved_x = false;
-    }
+    if      (value < -JOYSTICK_DEADZONE && !*joy_moved_x) { mdx = -1; moved = try_move(px, py, mdx, mdy); *joy_moved_x = true; }
+    else if (value >  JOYSTICK_DEADZONE && !*joy_moved_x) { mdx =  1; moved = try_move(px, py, mdx, mdy); *joy_moved_x = true; }
+    else if (value > -JOYSTICK_DEADZONE && value < JOYSTICK_DEADZONE) { *joy_moved_x = false; }
   }
-
-  // Y-axis (axis 1 for joystick, SDL_CONTROLLER_AXIS_LEFTY for controller)
   if (axis == 1) {
-    if (value < -JOYSTICK_DEADZONE && !*joy_moved_y) {
-      mdx = 0; mdy = -1;
-      moved = try_move(px, py, mdx, mdy);
-      *joy_moved_y = true;
-    } else if (value > JOYSTICK_DEADZONE && !*joy_moved_y) {
-      mdx = 0; mdy = 1;
-      moved = try_move(px, py, mdx, mdy);
-      *joy_moved_y = true;
-    } else if (value > -JOYSTICK_DEADZONE && value < JOYSTICK_DEADZONE) {
-      *joy_moved_y = false;
-    }
+    if      (value < -JOYSTICK_DEADZONE && !*joy_moved_y) { mdy = -1; moved = try_move(px, py, mdx, mdy); *joy_moved_y = true; }
+    else if (value >  JOYSTICK_DEADZONE && !*joy_moved_y) { mdy =  1; moved = try_move(px, py, mdx, mdy); *joy_moved_y = true; }
+    else if (value > -JOYSTICK_DEADZONE && value < JOYSTICK_DEADZONE) { *joy_moved_y = false; }
   }
 
   if (moved) {
+    update_move_counters(mdx, mdy);
     g_move_sequence++;
     bool goal_reached = (*px == MAZE_W - 1 && *py == MAZE_H - 1);
-    output_json_telemetry("joystick", *px, *py, goal_reached);
-    maybe_send_robot(mdx, mdy);
+    emit_move_telemetry("joystick", *px, *py, goal_reached);
+    robot_send_move(mdx, mdy);
 
     if (goal_reached) {
       *won = true;
+      post_mission_summary("success", "");
       SDL_SetWindowTitle(win, "You win! Press R to regenerate, Esc to quit");
     }
   }
@@ -538,103 +558,99 @@ static bool handle_joystick_axis(int axis, Sint16 value, int* px, int* py, bool*
   return moved;
 }
 
+// -----------------------------------------------------------------------
+// main
+// -----------------------------------------------------------------------
+
 int main(int argc, char** argv) {
   (void)argc; (void)argv;
   srand((unsigned)time(NULL));
 
-  // Initialize libcurl globally
   curl_global_init(CURL_GLOBAL_DEFAULT);
 
-  // Check for telemetry URL override
+  // Telemetry (mission summary) URL
   const char* env_url = getenv("TELEMETRY_URL");
-  if (env_url && strlen(env_url) > 0) {
-    g_telemetry_url = env_url;
-  }
-  printf("Telemetry URL: %s\n", g_telemetry_url);
+  if (env_url && *env_url) g_telemetry_url = env_url;
+  printf("Mission telemetry URL: %s\n", g_telemetry_url);
 
-  // Robot bridge URL (optional)
+  // Optional per-move URL
+  const char* env_move = getenv("MOVE_URL");
+  if (env_move && *env_move) g_move_url = env_move;
+  printf("Per-move URL:          %s\n", g_move_url ? g_move_url : "(disabled)");
+
+  // Robot bridge URL
   const char* env_robot = getenv("ROBOT_URL");
-  if (env_robot && strlen(env_robot) > 0) {
-    g_robot_url = env_robot;
-  }
-  printf("Robot URL:     %s\n", g_robot_url ? g_robot_url : "(disabled)");
+  if (env_robot && *env_robot) g_robot_url = env_robot;
+  printf("Robot URL:             %s\n", g_robot_url ? g_robot_url : "(disabled)");
 
-  // mTLS cert path overrides
-  const char* env_cc = getenv("CLIENT_CERT");
-  if (env_cc && strlen(env_cc) > 0) g_client_cert = env_cc;
-  const char* env_ck = getenv("CLIENT_KEY");
-  if (env_ck && strlen(env_ck) > 0) g_client_key  = env_ck;
-  const char* env_ca = getenv("CA_CERT");
-  if (env_ca && strlen(env_ca) > 0) g_ca_cert     = env_ca;
+  // mTLS cert overrides
+  const char* env_cc = getenv("CLIENT_CERT"); if (env_cc && *env_cc) g_client_cert = env_cc;
+  const char* env_ck = getenv("CLIENT_KEY");  if (env_ck && *env_ck) g_client_key  = env_ck;
+  const char* env_ca = getenv("CA_CERT");     if (env_ca && *env_ca) g_ca_cert     = env_ca;
   printf("mTLS client cert: %s\n", g_client_cert);
   printf("mTLS client key:  %s\n", g_client_key);
   printf("mTLS CA cert:     %s\n", g_ca_cert);
 
-  // Generate session ID for telemetry
+  // Generate first session ID
   generate_session_id();
+  reset_session_stats();
 
-  // For testing w/ PS5 controller
-  //SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5, "1");
   SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4, "1");
 
-  // Initialize both VIDEO and JOYSTICK + GAMECONTROLLER subsystems
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) != 0) {
     fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
     return 1;
   }
 
-  if (!init_queue(&g_telemetry_queue, "telemetry_worker", post_json_to_server)) {
+  // Mission summary queue (always required)
+  if (!init_queue(&g_telemetry_queue, "telemetry_worker", post_mission_json)) {
     fprintf(stderr, "Failed to start telemetry worker\n");
-    SDL_Quit();
-    curl_global_cleanup();
-    return 1;
+    SDL_Quit(); curl_global_cleanup(); return 1;
   }
 
-  if (g_robot_url) {
-    if (!init_queue(&g_robot_queue, "robot_worker", post_robot_command)) {
-      fprintf(stderr, "Failed to start robot worker (continuing without robot)\n");
-      g_robot_url = NULL; // disable robot commands
+  // Optional per-move queue
+  if (g_move_url) {
+    if (!init_queue(&g_move_queue, "move_worker", post_move_json)) {
+      fprintf(stderr, "Failed to start move worker (continuing without per-move telemetry)\n");
+      g_move_url = NULL;
     }
   }
 
-  // Enable joystick + game controller events
+  // Robot queue
+  if (g_robot_url) {
+    if (!init_queue(&g_robot_queue, "robot_worker", post_robot_command)) {
+      fprintf(stderr, "Failed to start robot worker (continuing without robot)\n");
+      g_robot_url = NULL;
+    }
+  }
+
   SDL_JoystickEventState(SDL_ENABLE);
   SDL_GameControllerEventState(SDL_ENABLE);
 
-  // Try to load controller mappings from gamecontrollerdb.txt if present (not using this right now)
   int mappings_added = SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt");
-  if (mappings_added > 0) {
-    printf("Loaded %d controller mapping(s) from gamecontrollerdb.txt\n", mappings_added);
-  }
+  if (mappings_added > 0)
+    printf("Loaded %d controller mapping(s)\n", mappings_added);
 
-  // Print detected joysticks for debugging
   printf("Detected %d joystick(s):\n", SDL_NumJoysticks());
   for (int i = 0; i < SDL_NumJoysticks(); i++) {
     const char* name = SDL_JoystickNameForIndex(i);
-    bool is_gc = SDL_IsGameController(i);
-    printf("  [%d] %s (GameController: %s)\n", i, name ? name : "Unknown", is_gc ? "Yes" : "No");
+    printf("  [%d] %s (GameController: %s)\n", i,
+           name ? name : "Unknown", SDL_IsGameController(i) ? "Yes" : "No");
   }
 
-  // Open game controller if available
   SDL_GameController* controller = NULL;
   for (int i = 0; i < SDL_NumJoysticks(); i++) {
     if (SDL_IsGameController(i)) {
       controller = SDL_GameControllerOpen(i);
-      if (controller) {
-        printf("Controller connected: %s\n", SDL_GameControllerName(controller));
-        break;
-      }
+      if (controller) { printf("Controller: %s\n", SDL_GameControllerName(controller)); break; }
     }
   }
 
-  // If no GameController recognized, fall back to raw joystick (will likely need this for Game HAT)
   SDL_Joystick* joystick = NULL;
   if (!controller && SDL_NumJoysticks() > 0) {
     joystick = SDL_JoystickOpen(0);
-    if (joystick) {
-      printf("Opened raw joystick: %s (axes: %d)\n",
-             SDL_JoystickName(joystick), SDL_JoystickNumAxes(joystick));
-    }
+    if (joystick)
+      printf("Raw joystick: %s (axes: %d)\n", SDL_JoystickName(joystick), SDL_JoystickNumAxes(joystick));
   }
 
   int win_w = PAD * 2 + MAZE_W * CELL;
@@ -642,33 +658,25 @@ int main(int argc, char** argv) {
 
   SDL_Window* win = SDL_CreateWindow(
     "SDL2 Maze - Reach the green goal (R to regenerate)",
-    SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-    win_w, win_h,
-    SDL_WINDOW_SHOWN
-  );
+    SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, SDL_WINDOW_SHOWN);
   if (!win) {
     fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
     if (controller) SDL_GameControllerClose(controller);
-    SDL_Quit();
-    return 1;
+    SDL_Quit(); return 1;
   }
 
   SDL_Renderer* r = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
   if (!r) {
     fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError());
     if (controller) SDL_GameControllerClose(controller);
-    SDL_DestroyWindow(win);
-    SDL_Quit();
-    return 1;
+    SDL_DestroyWindow(win); SDL_Quit(); return 1;
   }
 
   int px = 0, py = 0;
   regenerate(&px, &py, win);
 
-  bool running = true;
-  bool won = false;
-
-  // Joystick state tracking (for discrete-step movement)
+  bool running     = true;
+  bool won         = false;
   bool joy_moved_x = false;
   bool joy_moved_y = false;
 
@@ -683,59 +691,69 @@ int main(int argc, char** argv) {
         if (k == SDLK_ESCAPE) running = false;
 
         if (k == SDLK_r) {
+          // Send summary for the abandoned session before regenerating
+          if (!won) post_mission_summary("aborted", "player regenerated");
           regenerate(&px, &py, win);
           won = false;
         }
 
         if (!won) {
-          bool moved = false;
           int mdx = 0, mdy = 0;
-          if (k == SDLK_UP || k == SDLK_w)          { mdx = 0; mdy = -1; }
-          else if (k == SDLK_RIGHT || k == SDLK_d)  { mdx = 1; mdy = 0; }
-          else if (k == SDLK_DOWN || k == SDLK_s)   { mdx = 0; mdy = 1; }
-          else if (k == SDLK_LEFT || k == SDLK_a)   { mdx = -1; mdy = 0; }
-          if (mdx != 0 || mdy != 0) moved = try_move(&px, &py, mdx, mdy);
+          if      (k == SDLK_UP    || k == SDLK_w) { mdy = -1; }
+          else if (k == SDLK_RIGHT || k == SDLK_d) { mdx =  1; }
+          else if (k == SDLK_DOWN  || k == SDLK_s) { mdy =  1; }
+          else if (k == SDLK_LEFT  || k == SDLK_a) { mdx = -1; }
 
-          if (moved) {
-            g_move_sequence++;
-            bool goal_reached = (px == MAZE_W - 1 && py == MAZE_H - 1);
-            output_json_telemetry("keyboard", px, py, goal_reached);
-            maybe_send_robot(mdx, mdy);
+          if (mdx != 0 || mdy != 0) {
+            bool moved = try_move(&px, &py, mdx, mdy);
+            if (moved) {
+              update_move_counters(mdx, mdy);
+              g_move_sequence++;
+              bool goal_reached = (px == MAZE_W - 1 && py == MAZE_H - 1);
+              emit_move_telemetry("keyboard", px, py, goal_reached);
+              robot_send_move(mdx, mdy);
 
-            if (goal_reached) {
-              won = true;
-              SDL_SetWindowTitle(win, "You win! Press R to regenerate, Esc to quit");
+              if (goal_reached) {
+                won = true;
+                post_mission_summary("success", "");
+                SDL_SetWindowTitle(win, "You win! Press R to regenerate, Esc to quit");
+              }
             }
           }
         }
       }
 
-      // Handle game controller axis motion (recognized controllers)
+      // Game controller axis
       if (e.type == SDL_CONTROLLERAXISMOTION && !won) {
-        int axis = (e.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX) ? 0 : (e.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY) ? 1 : -1;
-        if (axis >= 0) {
+        int axis = -1;
+        if      (e.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX) axis = 0;
+        else if (e.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY) axis = 1;
+        if (axis >= 0)
           handle_joystick_axis(axis, e.caxis.value, &px, &py, &joy_moved_x, &joy_moved_y, &won, win);
-        }
       }
 
-      // Fallback (raw joystick axis motion)
-      if (e.type == SDL_JOYAXISMOTION && !won && joystick) {
+      // Raw joystick axis
+      if (e.type == SDL_JOYAXISMOTION && !won && joystick)
         handle_joystick_axis(e.jaxis.axis, e.jaxis.value, &px, &py, &joy_moved_x, &joy_moved_y, &won, win);
-      }
     }
 
     draw_maze(r);
     draw_player_goal(r, px, py);
-
     SDL_RenderPresent(r);
   }
 
+  // Send final summary if user quit without winning
+  if (!won) post_mission_summary("aborted", "user exited");
+
+  // Drain queues before shutting down SDL (the workers do the actual HTTP calls)
+  if (g_robot_url) shutdown_queue(&g_robot_queue);
+  if (g_move_url)  shutdown_queue(&g_move_queue);
+  shutdown_queue(&g_telemetry_queue);
+
   if (controller) SDL_GameControllerClose(controller);
-  if (joystick) SDL_JoystickClose(joystick);
+  if (joystick)   SDL_JoystickClose(joystick);
   SDL_DestroyRenderer(r);
   SDL_DestroyWindow(win);
-  if (g_robot_url) shutdown_queue(&g_robot_queue);
-  shutdown_queue(&g_telemetry_queue);
   SDL_Quit();
   curl_global_cleanup();
   return 0;
