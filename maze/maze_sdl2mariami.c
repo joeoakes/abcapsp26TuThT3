@@ -33,7 +33,7 @@ static const char* g_telemetry_url = "https://10.170.8.109:8445/mission";
 static const char* g_move_url = NULL;
 
 // mTLS client certificate paths (override via CLIENT_CERT, CLIENT_KEY, CA_CERT)
-static const char* g_client_cert = "../redis_httpsttps/certs/client.crt";
+static const char* g_client_cert = "../redis_https/certs/client.crt";
 static const char* g_client_key  = "../redis_https/certs/client.key";
 static const char* g_ca_cert     = "../redis_https/certs/ca.crt";
 
