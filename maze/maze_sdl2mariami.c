@@ -101,8 +101,8 @@ static void post_json_to_url(const char* url, const char* json) {
   curl_easy_setopt(curl, CURLOPT_SSLCERT,        g_client_cert);
   curl_easy_setopt(curl, CURLOPT_SSLKEY,         g_client_key);
   curl_easy_setopt(curl, CURLOPT_CAINFO,         g_ca_cert);
-  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 1L);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L); //insecure
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L); //insecure
 
   CURLcode res = curl_easy_perform(curl);
   if (res != CURLE_OK) {
