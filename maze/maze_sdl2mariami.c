@@ -26,7 +26,7 @@
 
 // Default HTTP server endpoint for telemetry (mission summary)
 // Run with: TELEMETRY_URL="https://172.24.205.173:8445/mission" ./maze_sdl2
-static const char* g_telemetry_url = "https://localhost:8445/mission";
+static const char* g_telemetry_url = "https://10.170.8.109:8445/mission";
 
 // Per-move endpoint (optional second queue — set to NULL to disable)
 // Set MOVE_URL env var to enable per-move telemetry alongside mission summary.
