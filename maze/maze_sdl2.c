@@ -30,6 +30,11 @@ static const char* g_client_cert = "../https/certs/client.crt";
 static const char* g_client_key  = "../https/certs/client.key";
 static const char* g_ca_cert     = "../https/certs/ca.crt";
 
+// Mini-Pupper mTLS cert paths (required when ROBOT_URL is set)
+static const char* g_robot_client_cert = NULL;
+static const char* g_robot_client_key  = NULL;
+static const char* g_robot_ca_cert     = NULL;
+
 // Change env var to match the Mini-Pupper IP:
 // ROBOT_URL="https://10.170.9.185:8445/robot" ./maze_sdl2
 static const char* g_robot_url = NULL;
@@ -81,7 +86,7 @@ static void post_json_to_server(const char* json) {
   curl_easy_setopt(curl, CURLOPT_SSLKEY,         g_client_key);
   curl_easy_setopt(curl, CURLOPT_CAINFO,         g_ca_cert);
   curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 1L);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
   
   CURLcode res = curl_easy_perform(curl);
   if (res != CURLE_OK) {
@@ -95,6 +100,11 @@ static void post_json_to_server(const char* json) {
 // POST a robot command JSON to the Mini-Pupper bridge
 static void post_robot_command(const char* json) {
   if (!g_robot_url) return;
+
+  if (!g_robot_client_cert || !g_robot_client_key || !g_robot_ca_cert) {
+    fprintf(stderr, "robot mTLS certs not configured; set ROBOT_CLIENT_CERT/ROBOT_CLIENT_KEY/ROBOT_CA_CERT\n");
+    return;
+  }
 
   CURL* curl = curl_easy_init();
   if (!curl) {
@@ -111,10 +121,12 @@ static void post_robot_command(const char* json) {
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, discard_response);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L);
-  // Self-signed HTTPS on robot: skip peer verification for now
-  // TODO: add mTLS or CA verification for robot link
-  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+  // mTLS: present client cert and verify robot cert against trusted CA
+  curl_easy_setopt(curl, CURLOPT_SSLCERT,        g_robot_client_cert);
+  curl_easy_setopt(curl, CURLOPT_SSLKEY,         g_robot_client_key);
+  curl_easy_setopt(curl, CURLOPT_CAINFO,         g_robot_ca_cert);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
 
   CURLcode res = curl_easy_perform(curl);
   if (res != CURLE_OK) {
@@ -569,6 +581,23 @@ int main(int argc, char** argv) {
   printf("mTLS client cert: %s\n", g_client_cert);
   printf("mTLS client key:  %s\n", g_client_key);
   printf("mTLS CA cert:     %s\n", g_ca_cert);
+
+  // Mini-Pupper mTLS certs (required when ROBOT_URL is set)
+  const char* env_rcc = getenv("ROBOT_CLIENT_CERT");
+  if (env_rcc && strlen(env_rcc) > 0) g_robot_client_cert = env_rcc;
+  const char* env_rck = getenv("ROBOT_CLIENT_KEY");
+  if (env_rck && strlen(env_rck) > 0) g_robot_client_key = env_rck;
+  const char* env_rca = getenv("ROBOT_CA_CERT");
+  if (env_rca && strlen(env_rca) > 0) g_robot_ca_cert = env_rca;
+
+  printf("Robot mTLS client cert: %s\n", g_robot_client_cert ? g_robot_client_cert : "(unset)");
+  printf("Robot mTLS client key:  %s\n", g_robot_client_key  ? g_robot_client_key  : "(unset)");
+  printf("Robot mTLS CA cert:     %s\n", g_robot_ca_cert     ? g_robot_ca_cert     : "(unset)");
+
+  if (g_robot_url && (!g_robot_client_cert || !g_robot_client_key || !g_robot_ca_cert)) {
+    fprintf(stderr, "ROBOT_URL is set but ROBOT_CLIENT_CERT/ROBOT_CLIENT_KEY/ROBOT_CA_CERT are required; robot link disabled\n");
+    g_robot_url = NULL;
+  }
 
   // Generate session ID for telemetry
   generate_session_id();

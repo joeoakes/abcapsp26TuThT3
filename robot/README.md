@@ -6,15 +6,47 @@ HTTPS server that receives movement commands from the maze game and publishes `T
 
 ```bash
 # On the Mini-Pupper
-# Generate self-signed certs (first time only: I already did this)
+# (First time) create the certs directory
 mkdir -p certs
-openssl req -x509 -newkey rsa:2048 -nodes \
-  -keyout certs/server.key -out certs/server.crt \
-  -days 365 -subj "/CN=mini-pupper"
 
 # Run the bridge
 python3 robot_bridge.py
 ```
+
+## mTLS Certificate Setup (Required)
+
+`robot_bridge.py` now enforces mTLS. The client (maze app) must present a cert
+signed by the CA that the robot bridge trusts.
+
+Run these commands once (from `robot/`):
+
+```bash
+mkdir -p certs
+
+# 1) Create a local CA
+openssl genrsa -out certs/ca.key 4096
+openssl req -x509 -new -nodes -key certs/ca.key -sha256 -days 3650 -subj "/CN=maze-robot-ca" -out certs/ca.crt
+
+# 2) Create robot server cert/key (CN/SAN should match robot DNS or IP)
+openssl genrsa -out certs/server.key 4096
+openssl req -new -key certs/server.key -subj "/CN=mini-pupper" -out certs/server.csr
+openssl x509 -req -in certs/server.csr -CA certs/ca.crt -CAkey certs/ca.key -CAcreateserial -out certs/server.crt -days 825 -sha256
+
+# 3) Create maze client cert/key
+openssl genrsa -out certs/client.key 4096
+openssl req -new -key certs/client.key -subj "/CN=maze-client" -out certs/client.csr
+openssl x509 -req -in certs/client.csr -CA certs/ca.crt -CAkey certs/ca.key -CAcreateserial -out certs/client.crt -days 825 -sha256
+```
+
+Distribute certs securely:
+
+- Keep private keys private:
+  - Robot needs `certs/server.key`
+  - Maze machine needs `client.key`
+- Copy trust/material to maze machine for robot link:
+  - `ca.crt`
+  - `client.crt`
+  - `client.key`
 
 ## Environment Variables
 
@@ -26,12 +58,13 @@ python3 robot_bridge.py
 | `MOVE_DURATION` | `0.5`               | Seconds per movement burst           |
 | `CERT_FILE`     | `certs/server.crt`  | TLS certificate path                 |
 | `KEY_FILE`      | `certs/server.key`  | TLS private key path                 |
+| `CA_CERT_FILE`  | `certs/ca.crt`      | Trusted CA for client-cert verify    |
 
 ## Testing
 
 ```bash
 # POST a test command
-curl -k -X POST https://localhost:8445/robot -H "Content-Type: application/json" -d '{"action":"forward"}'
+curl --cacert certs/ca.crt --cert certs/client.crt --key certs/client.key -X POST https://localhost:8445/robot -H "Content-Type: application/json" -d '{"action":"forward"}'
 
 # Can also watch for cmd_vel in another terminal
 ros2 topic echo /cmd_vel
@@ -53,7 +86,12 @@ On the machine running `maze_sdl2`, set the robot URL:
 
 ```bash
 export ROBOT_URL="https://10.170.9.185:8445/robot"
+export ROBOT_CA_CERT="/path/to/ca.crt"
+export ROBOT_CLIENT_CERT="/path/to/client.crt"
+export ROBOT_CLIENT_KEY="/path/to/client.key"
 ./maze_sdl2
 ```
 
-Each valid maze move will send a command to the Mini-Pupper.
+`ROBOT_CA_CERT`, `ROBOT_CLIENT_CERT`, and `ROBOT_CLIENT_KEY` are required when `ROBOT_URL` is set.
+
+Each valid maze move will send a command to the Mini-Pupper over verified mTLS.
