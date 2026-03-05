@@ -16,6 +16,7 @@ Environment variables:
     MOVE_DURATION   — seconds per movement burst  (default: 0.5)
     CERT_FILE       — path to server TLS cert     (default: certs/server.crt)
     KEY_FILE        — path to server TLS key      (default: certs/server.key)
+    CA_CERT_FILE    — trusted client CA cert      (default: certs/ca.crt)
 
 Accepted POST /robot JSON body:
     {"action": "forward" | "backward" | "turn_left" | "turn_right" | "stop"}
@@ -39,13 +40,22 @@ TURN_SPEED    = float(os.environ.get("TURN_SPEED", "1.0"))
 MOVE_DURATION = float(os.environ.get("MOVE_DURATION", "0.5"))
 CERT_FILE     = os.environ.get("CERT_FILE", "certs/server.crt")
 KEY_FILE      = os.environ.get("KEY_FILE", "certs/server.key")
-
-# TODO: Add mTLS client-certificate verification (currently self-signed HTTPS only)
+CA_CERT_FILE  = os.environ.get("CA_CERT_FILE", "certs/ca.crt")
 
 # ROS2 publisher (singleton, created in main)
 _ros_node = None       # type: Node | None
 _cmd_pub  = None       # type: rclpy.publisher.Publisher | None
 _move_lock = threading.Lock()
+
+
+def build_tls_context() -> ssl.SSLContext:
+    """Create a hardened TLS context that enforces mTLS client auth."""
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    ctx.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
+    ctx.load_verify_locations(cafile=CA_CERT_FILE)
+    ctx.verify_mode = ssl.CERT_REQUIRED
+    return ctx
 
 
 def _publish_twist(linear_x: float, angular_z: float) -> None:
@@ -145,13 +155,14 @@ def main():
     # HTTPS server
     server = HTTPServer(("0.0.0.0", ROBOT_PORT), RobotHandler)
 
-    # Wrap socket with TLS
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ctx.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
+    # Wrap socket with TLS + required client certificate verification (mTLS)
+    ctx = build_tls_context()
     server.socket = ctx.wrap_socket(server.socket, server_side=True)
 
     print(f"[bridge] HTTPS server listening on https://0.0.0.0:{ROBOT_PORT}/robot")
     print(f"[bridge] speed={SPEED}  turn={TURN_SPEED}  move_duration={MOVE_DURATION}s")
+    print(f"[bridge] TLS server cert={CERT_FILE} key={KEY_FILE}")
+    print(f"[bridge] mTLS trusted client CA={CA_CERT_FILE}")
 
     try:
         server.serve_forever()
