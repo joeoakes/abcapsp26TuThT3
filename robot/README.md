@@ -28,13 +28,10 @@ openssl genrsa -out certs/ca.key 4096
 openssl req -x509 -new -nodes -key certs/ca.key -sha256 -days 3650 -subj "/CN=maze-robot-ca" -out certs/ca.crt
 
 # 2) Create robot server cert/key
-#    Replace the value below with your Mini-Pupper's actual IP address.
-ROBOT_IP="<your-mini-pupper-ip>"
+ROBOT_IP="10.170.9.185"
 openssl genrsa -out certs/server.key 4096
 openssl req -new -key certs/server.key -subj "/CN=mini-pupper" -out certs/server.csr
-openssl x509 -req -in certs/server.csr -CA certs/ca.crt -CAkey certs/ca.key -CAcreateserial \
-  -out certs/server.crt -days 825 -sha256 \
-  -extfile <(printf "subjectAltName=IP:%s" "$ROBOT_IP")
+openssl x509 -req -in certs/server.csr -CA certs/ca.crt -CAkey certs/ca.key -CAcreateserial -out certs/server.crt -days 825 -sha256 -extfile <(printf "subjectAltName=IP:%s" "$ROBOT_IP")
 
 # 3) Create maze client cert/key
 openssl genrsa -out certs/client.key 4096
@@ -99,3 +96,4 @@ export ROBOT_CLIENT_KEY="/path/to/client.key"
 `ROBOT_CA_CERT`, `ROBOT_CLIENT_CERT`, and `ROBOT_CLIENT_KEY` are required when `ROBOT_URL` is set.
 
 Each valid maze move will send a command to the Mini-Pupper over verified mTLS.
+
