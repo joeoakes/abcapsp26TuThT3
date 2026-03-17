@@ -94,9 +94,17 @@ def execute_action(action: str) -> None:
     with _move_lock:
         linear_x, angular_z = velocities
         print(f"[bridge] action={action}  lin_x={linear_x}  ang_z={angular_z}  dur={MOVE_DURATION}s")
-        _publish_twist(linear_x, angular_z)
-        if action != "stop":
-            time.sleep(MOVE_DURATION)
+        if action == "stop":
+            _publish_twist(0.0, 0.0)
+        else:
+            # Test (publish repeatedly at ~20 Hz so the motor controller sees a continuous velocity stream for the full duration)
+            rate_hz = 20.0
+            interval = 1.0 / rate_hz
+            elapsed = 0.0
+            while elapsed < MOVE_DURATION:
+                _publish_twist(linear_x, angular_z)
+                time.sleep(interval)
+                elapsed += interval
             _stop()
 
 
