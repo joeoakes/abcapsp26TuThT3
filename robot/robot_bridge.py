@@ -23,6 +23,7 @@ Accepted POST /robot JSON body:
 """
 
 import json
+import math
 import os
 import ssl
 import threading
@@ -93,7 +94,10 @@ def execute_action(action: str) -> None:
 
     with _move_lock:
         linear_x, angular_z = velocities
-        print(f"[bridge] action={action}  lin_x={linear_x}  ang_z={angular_z}  dur={MOVE_DURATION}s")
+        duration = MOVE_DURATION
+        if action in ("turn_left", "turn_right") and angular_z != 0.0:
+            duration = (math.pi / 2.0) / abs(angular_z)
+        print(f"[bridge] action={action}  lin_x={linear_x}  ang_z={angular_z}  dur={duration}s")
         if action == "stop":
             _publish_twist(0.0, 0.0)
         else:
@@ -101,7 +105,7 @@ def execute_action(action: str) -> None:
             rate_hz = 20.0
             interval = 1.0 / rate_hz
             elapsed = 0.0
-            while elapsed < MOVE_DURATION:
+            while elapsed < duration:
                 _publish_twist(linear_x, angular_z)
                 time.sleep(interval)
                 elapsed += interval
