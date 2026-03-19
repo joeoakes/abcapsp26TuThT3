@@ -38,6 +38,7 @@ from geometry_msgs.msg import Twist
 ROBOT_PORT    = int(os.environ.get("ROBOT_PORT", "8445"))
 SPEED         = float(os.environ.get("SPEED", "0.5"))
 TURN_SPEED    = float(os.environ.get("TURN_SPEED", "1.0"))
+TURN_ANGLE_DEGREES = float(os.environ.get("TURN_ANGLE_DEGREES", "120.0"))
 MOVE_DURATION = float(os.environ.get("MOVE_DURATION", "0.5"))
 CERT_FILE     = os.environ.get("CERT_FILE", "certs/server.crt")
 KEY_FILE      = os.environ.get("KEY_FILE", "certs/server.key")
@@ -96,7 +97,7 @@ def execute_action(action: str) -> None:
         linear_x, angular_z = velocities
         duration = MOVE_DURATION
         if action in ("turn_left", "turn_right") and angular_z != 0.0:
-            duration = (math.pi / 2.0) / abs(angular_z)
+            duration = math.radians(TURN_ANGLE_DEGREES) / abs(angular_z)
         print(f"[bridge] action={action}  lin_x={linear_x}  ang_z={angular_z}  dur={duration}s")
         if action == "stop":
             _publish_twist(0.0, 0.0)
@@ -172,7 +173,7 @@ def main():
     server.socket = ctx.wrap_socket(server.socket, server_side=True)
 
     print(f"[bridge] HTTPS server listening on https://0.0.0.0:{ROBOT_PORT}/robot")
-    print(f"[bridge] speed={SPEED}  turn={TURN_SPEED}  move_duration={MOVE_DURATION}s")
+    print(f"[bridge] speed={SPEED}  turn={TURN_SPEED}  turn_angle={TURN_ANGLE_DEGREES}deg  move_duration={MOVE_DURATION}s")
     print(f"[bridge] TLS server cert={CERT_FILE} key={KEY_FILE}")
     print(f"[bridge] mTLS trusted client CA={CA_CERT_FILE}")
 

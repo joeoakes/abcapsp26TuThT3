@@ -265,20 +265,48 @@ static void telemetry_enqueue_json(const char* json) {
   enqueue_json(&g_telemetry_queue, "telemetry", json);
 }
 
-// Map a maze movement (dx,dy) to a robot action and enqueue it
-static void robot_send_move(int dx, int dy) {
-  if (!g_robot_url) return;
+typedef enum {
+  ROBOT_HEADING_NORTH = 0,
+  ROBOT_HEADING_EAST  = 1,
+  ROBOT_HEADING_SOUTH = 2,
+  ROBOT_HEADING_WEST  = 3,
+} RobotHeading;
 
-  const char* action = NULL;
-  if (dx == 0 && dy == -1)      action = "forward";
-  else if (dx == 0 && dy == 1)  action = "backward";
-  else if (dx == -1 && dy == 0) action = "turn_left";
-  else if (dx == 1 && dy == 0)  action = "turn_right";
-  else return;
+static void robot_enqueue_action(const char* action) {
+  if (!g_robot_url) return;
 
   char json[128];
   snprintf(json, sizeof(json), "{\"action\":\"%s\"}", action);
   enqueue_json(&g_robot_queue, "robot", json);
+}
+
+static int robot_heading_from_move(int dx, int dy) {
+  if (dx == 0 && dy == -1) return ROBOT_HEADING_NORTH;
+  if (dx == 1 && dy == 0) return ROBOT_HEADING_EAST;
+  if (dx == 0 && dy == 1) return ROBOT_HEADING_SOUTH;
+  if (dx == -1 && dy == 0) return ROBOT_HEADING_WEST;
+  return -1;
+}
+
+// Map a maze movement (dx,dy) to a robot action and enqueue it
+static void robot_send_move(int dx, int dy, int* robot_heading) {
+  if (!g_robot_url || !robot_heading) return;
+
+  int desired_heading = robot_heading_from_move(dx, dy);
+  if (desired_heading < 0) return;
+
+  int turn_delta = (desired_heading - *robot_heading + 4) % 4;
+  if (turn_delta == 1) {
+    robot_enqueue_action("turn_right");
+  } else if (turn_delta == 2) {
+    robot_enqueue_action("turn_right");
+    robot_enqueue_action("turn_right");
+  } else if (turn_delta == 3) {
+    robot_enqueue_action("turn_left");
+  }
+
+  robot_enqueue_action("forward");
+  *robot_heading = desired_heading;
 }
 
 // Wall bitmask for each cell
@@ -495,13 +523,13 @@ static void output_json_telemetry(const char* device, int px, int py, bool goal_
 }
 
 // Send a move to the robot bridge — call after a successful try_move
-static void maybe_send_robot(int dx, int dy) {
-  robot_send_move(dx, dy);
+static void maybe_send_robot(int dx, int dy, int* robot_heading) {
+  robot_send_move(dx, dy, robot_heading);
 }
 
 // Handle joystick/controller axis input + emit telemetry on move
 // Returns true after goal reached
-static bool handle_joystick_axis(int axis, Sint16 value, int* px, int* py, bool* joy_moved_x, bool* joy_moved_y, bool* won, SDL_Window* win) {
+static bool handle_joystick_axis(int axis, Sint16 value, int* px, int* py, bool* joy_moved_x, bool* joy_moved_y, bool* won, int* robot_heading, SDL_Window* win) {
   bool moved = false;
   int mdx = 0, mdy = 0;
 
@@ -539,7 +567,7 @@ static bool handle_joystick_axis(int axis, Sint16 value, int* px, int* py, bool*
     g_move_sequence++;
     bool goal_reached = (*px == MAZE_W - 1 && *py == MAZE_H - 1);
     output_json_telemetry("joystick", *px, *py, goal_reached);
-    maybe_send_robot(mdx, mdy);
+    maybe_send_robot(mdx, mdy, robot_heading);
 
     if (goal_reached) {
       *won = true;
@@ -710,6 +738,7 @@ int main(int argc, char** argv) {
 
   int px = 0, py = 0;
   regenerate(&px, &py, win);
+  int robot_heading = ROBOT_HEADING_NORTH;
 
   bool running = true;
   bool won = false;
@@ -730,6 +759,7 @@ int main(int argc, char** argv) {
 
         if (k == SDLK_r) {
           regenerate(&px, &py, win);
+          robot_heading = ROBOT_HEADING_NORTH;
           won = false;
         }
 
@@ -746,7 +776,7 @@ int main(int argc, char** argv) {
             g_move_sequence++;
             bool goal_reached = (px == MAZE_W - 1 && py == MAZE_H - 1);
             output_json_telemetry("keyboard", px, py, goal_reached);
-            maybe_send_robot(mdx, mdy);
+            maybe_send_robot(mdx, mdy, &robot_heading);
 
             if (goal_reached) {
               won = true;
@@ -760,13 +790,13 @@ int main(int argc, char** argv) {
       if (e.type == SDL_CONTROLLERAXISMOTION && !won) {
         int axis = (e.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX) ? 0 : (e.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY) ? 1 : -1;
         if (axis >= 0) {
-          handle_joystick_axis(axis, e.caxis.value, &px, &py, &joy_moved_x, &joy_moved_y, &won, win);
+          handle_joystick_axis(axis, e.caxis.value, &px, &py, &joy_moved_x, &joy_moved_y, &won, &robot_heading, win);
         }
       }
 
       // Fallback (raw joystick axis motion)
       if (e.type == SDL_JOYAXISMOTION && !won && joystick) {
-        handle_joystick_axis(e.jaxis.axis, e.jaxis.value, &px, &py, &joy_moved_x, &joy_moved_y, &won, win);
+        handle_joystick_axis(e.jaxis.axis, e.jaxis.value, &px, &py, &joy_moved_x, &joy_moved_y, &won, &robot_heading, win);
       }
     }
 
