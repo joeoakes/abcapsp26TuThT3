@@ -669,9 +669,26 @@ int main(int argc, char** argv) {
   int win_w = PAD * 2 + MAZE_W * CELL;
   int win_h = PAD * 2 + MAZE_H * CELL;
 
+  int window_x = SDL_WINDOWPOS_CENTERED;
+  int window_y = SDL_WINDOWPOS_CENTERED;
+  const char* env_display = getenv("MAZE_DISPLAY");
+  if (env_display && strlen(env_display) > 0) {
+    char* endptr = NULL;
+    long display_index = strtol(env_display, &endptr, 10);
+    if (endptr == env_display || *endptr != '\0') {
+      fprintf(stderr, "Invalid MAZE_DISPLAY value '%s'; expected an integer display index\n", env_display);
+    } else if (display_index < 0 || display_index >= SDL_GetNumVideoDisplays()) {
+      fprintf(stderr, "MAZE_DISPLAY=%ld out of range; SDL reports %d display(s)\n", display_index, SDL_GetNumVideoDisplays());
+    } else {
+      window_x = SDL_WINDOWPOS_CENTERED_DISPLAY((int)display_index);
+      window_y = SDL_WINDOWPOS_CENTERED_DISPLAY((int)display_index);
+      printf("Using SDL display %ld for maze window\n", display_index);
+    }
+  }
+
   SDL_Window* win = SDL_CreateWindow(
     "SDL2 Maze - Reach the green goal (R to regenerate)",
-    SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+    window_x, window_y,
     win_w, win_h,
     SDL_WINDOW_SHOWN
   );
