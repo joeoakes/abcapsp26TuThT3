@@ -39,6 +39,7 @@ ROBOT_PORT    = int(os.environ.get("ROBOT_PORT", "8445"))
 SPEED         = float(os.environ.get("SPEED", "0.5"))
 TURN_SPEED    = float(os.environ.get("TURN_SPEED", "1.0"))
 TURN_ANGLE_DEGREES = float(os.environ.get("TURN_ANGLE_DEGREES", "120.0"))
+TURN_MOVE_DELAY = float(os.environ.get("TURN_MOVE_DELAY", "0.5"))
 MOVE_DURATION = float(os.environ.get("MOVE_DURATION", "0.5"))
 CERT_FILE     = os.environ.get("CERT_FILE", "certs/server.crt")
 KEY_FILE      = os.environ.get("KEY_FILE", "certs/server.key")
@@ -48,7 +49,7 @@ CA_CERT_FILE  = os.environ.get("CA_CERT_FILE", "certs/ca.crt")
 _ros_node = None       # type: Node | None
 _cmd_pub  = None       # type: rclpy.publisher.Publisher | None
 _move_lock = threading.Lock()
-
+_last_action = "stop"
 
 def build_tls_context() -> ssl.SSLContext:
     """Create a hardened TLS context that enforces mTLS client auth."""
@@ -59,7 +60,6 @@ def build_tls_context() -> ssl.SSLContext:
     ctx.verify_mode = ssl.CERT_REQUIRED
     return ctx
 
-
 def _publish_twist(linear_x: float, angular_z: float) -> None:
     """Publish a single Twist message."""
     if _cmd_pub is None:
@@ -69,17 +69,16 @@ def _publish_twist(linear_x: float, angular_z: float) -> None:
     twist.angular.z = angular_z
     _cmd_pub.publish(twist)
 
-
 def _stop() -> None:
     """Publish a zero-velocity Twist (stop)."""
     _publish_twist(0.0, 0.0)
-
 
 def execute_action(action: str) -> None:
     """
     Execute a movement action: publish velocity for MOVE_DURATION seconds,
     then stop.  Runs behind _move_lock so commands don't overlap.
     """
+    global _last_action
     mapping = {
         "forward":    (SPEED,  0.0),
         "backward":   (-SPEED, 0.0),
@@ -94,10 +93,13 @@ def execute_action(action: str) -> None:
         return
 
     with _move_lock:
+        previous_action = _last_action
         linear_x, angular_z = velocities
         duration = MOVE_DURATION
         if action in ("turn_left", "turn_right") and angular_z != 0.0:
             duration = math.radians(TURN_ANGLE_DEGREES) / abs(angular_z)
+        if previous_action in ("turn_left", "turn_right") and action in ("forward", "backward"):
+            time.sleep(TURN_MOVE_DELAY)
         print(f"[bridge] action={action}  lin_x={linear_x}  ang_z={angular_z}  dur={duration}s")
         if action == "stop":
             _publish_twist(0.0, 0.0)
@@ -111,7 +113,7 @@ def execute_action(action: str) -> None:
                 time.sleep(interval)
                 elapsed += interval
             _stop()
-
+        _last_action = action
 
 # HTTPS request handler
 class RobotHandler(BaseHTTPRequestHandler):
