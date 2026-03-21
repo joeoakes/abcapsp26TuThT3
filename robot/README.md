@@ -51,15 +51,17 @@ Distribute certs securely:
 
 ## Environment Variables
 
-| Variable        | Default             | Description                          |
-|-----------------|---------------------|--------------------------------------|
-| `ROBOT_PORT`    | `8445`              | HTTPS listen port                    |
-| `SPEED`         | `0.5`               | Linear velocity (m/s)                |
-| `TURN_SPEED`    | `1.0`               | Angular velocity (rad/s)             |
-| `MOVE_DURATION` | `0.5`               | Seconds per movement burst           |
-| `CERT_FILE`     | `certs/server.crt`  | TLS certificate path                 |
-| `KEY_FILE`      | `certs/server.key`  | TLS private key path                 |
-| `CA_CERT_FILE`  | `certs/ca.crt`      | Trusted CA for client-cert verify    |
+| Variable          | Default             | Description                          |
+|-------------------|---------------------|--------------------------------------|
+| `ROBOT_PORT`      | `8445`              | HTTPS listen port                    |
+| `SPEED`           | `0.5`               | Linear velocity (m/s)                |
+| `TURN_SPEED`      | `1.0`               | Angular velocity (rad/s)             |
+| `TURN_ANGLE_MULT` | `2.0`               | Turning duration multiplier          |
+| `TURN_MOVE_DELAY` | `0.5`               | Delay after turning before moving    |
+| `MOVE_DURATION`   | `0.5`               | Seconds per movement burst           |
+| `CERT_FILE`       | `certs/server.crt`  | TLS certificate path                 |
+| `KEY_FILE`        | `certs/server.key`  | TLS private key path                 |
+| `CA_CERT_FILE`    | `certs/ca.crt`      | Trusted CA for client-cert verify    |
 
 ## Testing
 
@@ -83,17 +85,17 @@ ros2 topic echo /cmd_vel
 
 ## Maze Client Setup
 
-On the machine running `maze_sdl2`, set the robot URL:
+On the machine running `maze_sdl2`, you can optionally override the robot URL + credentials:
 
 ```bash
 export ROBOT_URL="https://10.170.9.185:8445/robot"
-export ROBOT_CA_CERT="/path/to/ca.crt"
-export ROBOT_CLIENT_CERT="/path/to/client.crt"
-export ROBOT_CLIENT_KEY="/path/to/client.key"
+export ROBOT_CA_CERT="../robot/certs/ca.crt"
+export ROBOT_CLIENT_CERT="../robot/certs/client.crt"
+export ROBOT_CLIENT_KEY="../robot/certs/client.key"
 ./maze_sdl2
 ```
 
-`ROBOT_CA_CERT`, `ROBOT_CLIENT_CERT`, and `ROBOT_CLIENT_KEY` are required when `ROBOT_URL` is set.
+`ROBOT_CA_CERT`, `ROBOT_CLIENT_CERT`, and `ROBOT_CLIENT_KEY` will by default to point to `../robot/certs/`.
 
 Each valid maze move will send a command to the Mini-Pupper over verified mTLS.
 

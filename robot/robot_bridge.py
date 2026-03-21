@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-robot_bridge.py — HTTPS command bridge for ROS2 Mini-Pupper.
+robot_bridge.py - HTTPS command bridge for ROS2 Mini-Pupper.
 
 Receives movement commands from the maze game over HTTPS and publishes
 Twist messages to the ROS2 /cmd_vel topic.
@@ -10,13 +10,15 @@ Usage:
     python3 robot_bridge.py
 
 Environment variables:
-    ROBOT_PORT      — HTTPS listen port          (default: 8445)
-    SPEED           — linear.x magnitude m/s     (default: 0.5)
-    TURN_SPEED      — angular.z magnitude rad/s  (default: 1.0)
-    MOVE_DURATION   — seconds per movement burst  (default: 0.5)
-    CERT_FILE       — path to server TLS cert     (default: certs/server.crt)
-    KEY_FILE        — path to server TLS key      (default: certs/server.key)
-    CA_CERT_FILE    — trusted client CA cert      (default: certs/ca.crt)
+    ROBOT_PORT      - HTTPS listen port          (default: 8445)
+    SPEED           - linear.x magnitude m/s     (default: 0.5)
+    TURN_SPEED      - angular.z magnitude rad/s  (default: 1.0)
+    TURN_ANGLE_MULT - angular.z duration mult    (default: 2.0)
+    TURN_MOVE_DELAY - wait after turn before fwd (default: 0.5)
+    MOVE_DURATION   - seconds per movement burst (default: 0.5)
+    CERT_FILE       - path to server TLS cert    (default: certs/server.crt)
+    KEY_FILE        - path to server TLS key     (default: certs/server.key)
+    CA_CERT_FILE    - trusted client CA cert     (default: certs/ca.crt)
 
 Accepted POST /robot JSON body:
     {"action": "forward" | "backward" | "turn_left" | "turn_right" | "stop"}
@@ -35,15 +37,15 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist
 
 # Configuration (override via environment variables)
-ROBOT_PORT    = int(os.environ.get("ROBOT_PORT", "8445"))
-SPEED         = float(os.environ.get("SPEED", "0.5"))
-TURN_SPEED    = float(os.environ.get("TURN_SPEED", "1.0"))
-TURN_ANGLE_DEGREES = float(os.environ.get("TURN_ANGLE_DEGREES", "120.0"))
+ROBOT_PORT = int(os.environ.get("ROBOT_PORT", "8445"))
+SPEED = float(os.environ.get("SPEED", "0.5"))
+TURN_SPEED = float(os.environ.get("TURN_SPEED", "1.0"))
+TURN_ANGLE_MULT = float(os.environ.get("TURN_ANGLE_MULT", "2.0"))
 TURN_MOVE_DELAY = float(os.environ.get("TURN_MOVE_DELAY", "0.5"))
 MOVE_DURATION = float(os.environ.get("MOVE_DURATION", "0.5"))
-CERT_FILE     = os.environ.get("CERT_FILE", "certs/server.crt")
-KEY_FILE      = os.environ.get("KEY_FILE", "certs/server.key")
-CA_CERT_FILE  = os.environ.get("CA_CERT_FILE", "certs/ca.crt")
+CERT_FILE = os.environ.get("CERT_FILE", "certs/server.crt")
+KEY_FILE = os.environ.get("KEY_FILE", "certs/server.key")
+CA_CERT_FILE = os.environ.get("CA_CERT_FILE", "certs/ca.crt")
 
 # ROS2 publisher (singleton, created in main)
 _ros_node = None       # type: Node | None
@@ -97,7 +99,7 @@ def execute_action(action: str) -> None:
         linear_x, angular_z = velocities
         duration = MOVE_DURATION
         if action in ("turn_left", "turn_right") and angular_z != 0.0:
-            duration = math.radians(TURN_ANGLE_DEGREES) / abs(angular_z)
+            duration = math.radians(90.0 * TURN_ANGLE_MULT) / abs(angular_z)
         if previous_action in ("turn_left", "turn_right") and action in ("forward", "backward"):
             time.sleep(TURN_MOVE_DELAY)
         print(f"[bridge] action={action}  lin_x={linear_x}  ang_z={angular_z}  dur={duration}s")
@@ -175,7 +177,7 @@ def main():
     server.socket = ctx.wrap_socket(server.socket, server_side=True)
 
     print(f"[bridge] HTTPS server listening on https://0.0.0.0:{ROBOT_PORT}/robot")
-    print(f"[bridge] speed={SPEED}  turn={TURN_SPEED}  turn_angle={TURN_ANGLE_DEGREES}deg  move_duration={MOVE_DURATION}s")
+    print(f"[bridge] speed={SPEED} | turn_speed={TURN_SPEED} | move_duration={MOVE_DURATION}s")
     print(f"[bridge] TLS server cert={CERT_FILE} key={KEY_FILE}")
     print(f"[bridge] mTLS trusted client CA={CA_CERT_FILE}")
 

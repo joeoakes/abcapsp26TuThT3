@@ -31,13 +31,13 @@ static const char* g_client_key  = "../https/certs/client.key";
 static const char* g_ca_cert     = "../https/certs/ca.crt";
 
 // Mini-Pupper mTLS cert paths (required when ROBOT_URL is set)
-static const char* g_robot_client_cert = NULL;
-static const char* g_robot_client_key  = NULL;
-static const char* g_robot_ca_cert     = NULL;
+static const char* g_robot_client_cert = "../robot/certs/client.crt";
+static const char* g_robot_client_key  = "../robot/certs/client.key";
+static const char* g_robot_ca_cert     = "../robot/certs/ca.crt";
 
 // Change env var to match the Mini-Pupper IP:
 // ROBOT_URL="https://10.170.9.185:8445/robot" ./maze_sdl2
-static const char* g_robot_url = NULL;
+static const char* g_robot_url = "https://10.170.9.185:8445/robot";
 
 // Session state for JSON telemetry
 static char g_session_id[40];
