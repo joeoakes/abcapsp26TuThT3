@@ -563,6 +563,9 @@ static bool handle_joystick_axis(int axis, Sint16 value,
 // -----------------------------------------------------------------------
 
 int main(int argc, char** argv) {
+  memset(&g_move_queue, 0, sizeof(g_move_queue));
+  memset(&g_robot_queue, 0, sizeof(g_robot_queue));
+  memset(&g_telemetry_queue, 0, sizeof(g_telemetry_queue));
   (void)argc; (void)argv;
   srand((unsigned)time(NULL));
 
