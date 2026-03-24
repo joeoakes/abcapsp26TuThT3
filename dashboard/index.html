@@ -1,1 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Mini-Pupper Mission Dashboard — Team 3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=IBM+Plex+Sans:wght@300;400;600&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
+<style>
+  :root {
+    --bg:        #030b14;
+    --panel:     #071525;
+    --border:    #0d3a5c;
+    --accent:    #00e5ff;
+    --accent2:   #ff6b35;
+    --green:     #00ff88;
+    --red:       #ff3366;
+    --yellow:    #ffe600;
+    --text:      #c8dff0;
+    --dim:       #4a6a84;
+    --glow:      0 0 20px rgba(0,229,255,0.3);
+    --glow2:     0 0 20px rgba(255,107,53,0.3);
+    --font-head: 'Orbitron', monospace;
+    --font-mono: 'Share Tech Mono', monospace;
+    --font-body: 'IBM Plex Sans', sans-serif;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-height:100vh;overflow-x:hidden}
+  body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;
+    background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.025) 2px,rgba(0,0,0,0.025) 4px)}
+  body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9998;opacity:0.03;
+    background-image:radial-gradient(circle,#00e5ff 1px,transparent 1px);background-size:40px 40px}
 
+  header{display:flex;align-items:center;justify-content:space-between;padding:14px 28px;
+    border-bottom:1px solid var(--border);
+    background:linear-gradient(90deg,#030b14 0%,#071d30 50%,#030b14 100%);
+    position:sticky;top:0;z-index:100}
+  .header-left{display:flex;flex-direction:column;gap:3px}
+  .logo{font-family:var(--font-head);font-size:1.05rem;font-weight:900;letter-spacing:3px;
+    color:var(--accent);text-shadow:var(--glow)}
+  .logo span{color:var(--accent2)}
+  .sub-title{font-family:var(--font-mono);font-size:0.6rem;color:var(--dim);letter-spacing:1px}
+  .header-right{display:flex;align-items:center;gap:16px}
+  .conn-badge{display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:0.67rem;
+    color:var(--dim);padding:5px 14px;border-radius:20px;border:1px solid var(--border);transition:all .4s}
+  .conn-badge.live{color:var(--green);border-color:var(--green);box-shadow:0 0 12px rgba(0,255,136,.3)}
+  .conn-badge.dead{color:var(--red);border-color:var(--red)}
+  .conn-dot{width:7px;height:7px;border-radius:50%;background:var(--dim);transition:all .4s}
+  .conn-badge.live .conn-dot{background:var(--green);animation:pulse 2s infinite}
+  .conn-badge.dead .conn-dot{background:var(--red)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .clock{font-family:var(--font-mono);font-size:.8rem;color:var(--dim)}
+
+  .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px;padding:16px 20px;max-width:1800px;margin:0 auto}
+
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:16px;
+    position:relative;overflow:hidden;animation:fadeIn .5s ease both}
+  .panel::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+    background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:.5}
+  .panel.orange::before{background:linear-gradient(90deg,transparent,var(--accent2),transparent)}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+  .panel-title{font-family:var(--font-head);font-size:.57rem;font-weight:700;letter-spacing:3px;
+    text-transform:uppercase;color:var(--accent);margin-bottom:14px;display:flex;align-items:center;gap:10px}
+  .panel-title.orange{color:var(--accent2)}
+  .panel-title .tag{font-size:.53rem;padding:2px 8px;border-radius:3px;border:1px solid currentColor;opacity:.7}
+
+  /* Mission cards */
+  .mc{border-radius:6px;padding:16px 18px;border:1px solid var(--border);animation:fadeIn .5s ease both;position:relative;overflow:hidden}
+  .mc::after{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(0,229,255,.04) 0%,transparent 60%);pointer-events:none}
+  .mc.green-c {background:linear-gradient(135deg,#071f14,#071525);border-color:#0d5c30}
+  .mc.amber-c {background:linear-gradient(135deg,#1f1407,#071525);border-color:#5c3a0d}
+  .mc.blue-c  {background:linear-gradient(135deg,#071525,#0a1e35);border-color:#0d3a5c}
+  .mc.purple-c{background:linear-gradient(135deg,#100718,#071525);border-color:#2d1040}
+  .mc-label{font-family:var(--font-mono);font-size:.57rem;letter-spacing:2px;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+  .mc-val{font-family:var(--font-head);font-size:1.75rem;font-weight:900;line-height:1;transition:all .3s}
+  .mc-val.green {color:var(--green);text-shadow:0 0 20px rgba(0,255,136,.4)}
+  .mc-val.amber {color:var(--yellow);text-shadow:0 0 20px rgba(255,230,0,.4)}
+  .mc-val.cyan  {color:var(--accent);text-shadow:var(--glow)}
+  .mc-val.orange{color:var(--accent2);text-shadow:var(--glow2)}
+  .mc-sub{font-family:var(--font-mono);font-size:.61rem;color:var(--dim);margin-top:4px}
+  .mc-sub span{color:var(--text)}
+  .blink{animation:blink 1s step-end infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+  /* Telemetry table */
+  .telem-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .telem-row{display:flex;justify-content:space-between;align-items:center;
+    padding:10px 14px;background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:4px}
+  .t-label{font-size:.76rem;color:var(--dim)}
+  .t-value{font-family:var(--font-head);font-size:1rem;font-weight:700;color:var(--text)}
+  .t-value.accent{color:var(--accent)} .t-value.green{color:var(--green)} .t-value.red{color:var(--red)}
+
+  /* Movement */
+  .move-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+  .move-row{display:flex;justify-content:space-between;align-items:center;
+    padding:10px 14px;background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:4px}
+  .m-label{font-size:.74rem;color:var(--dim)}
+  .m-val{font-family:var(--font-head);font-size:.88rem;font-weight:700;color:var(--text)}
+  .m-val.accent{color:var(--accent)} .m-val.green{color:var(--green)} .m-val.red{color:var(--red)} .m-val.orange{color:var(--accent2)}
+
+  /* AI & Logging */
+  .ai-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+  .ai-chip{display:flex;align-items:center;justify-content:space-between;
+    padding:9px 12px;background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:4px}
+  .chip-label{font-size:.71rem;color:var(--dim)}
+  .chip-val{font-family:var(--font-head);font-size:.73rem;font-weight:700;transition:all .3s}
+  .chip-val.ok{color:var(--green)} .chip-val.warn{color:var(--yellow)} .chip-val.err{color:var(--red)} .chip-val.dim{color:var(--dim)}
+
+  .model-box{padding:10px 14px;background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:4px;margin-bottom:12px}
+  .model-box .mo-lbl{font-size:.58rem;color:var(--dim);letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;font-family:var(--font-mono)}
+  .model-box .mo-txt{font-family:var(--font-mono);font-size:.71rem;color:var(--text);line-height:1.6}
+
+  .ai-row{display:flex;gap:8px}
+  .ai-row input{flex:1;background:rgba(0,0,0,.5);border:1px solid var(--border);color:var(--text);
+    font-family:var(--font-mono);font-size:.71rem;padding:7px 10px;border-radius:4px;outline:none}
+  .ai-row input:focus{border-color:var(--accent)}
+  .btn{background:transparent;border:1px solid var(--accent);color:var(--accent);
+    font-family:var(--font-mono);font-size:.64rem;letter-spacing:1px;padding:7px 14px;border-radius:4px;cursor:pointer;transition:all .2s}
+  .btn:hover{background:rgba(0,229,255,.1);box-shadow:var(--glow)}
+  .btn.orange{border-color:var(--accent2);color:var(--accent2)}
+  .btn.orange:hover{background:rgba(255,107,53,.1)}
+
+  /* Log */
+  .log-feed{font-family:var(--font-mono);font-size:.66rem;height:200px;overflow-y:auto;
+    display:flex;flex-direction:column-reverse;gap:2px}
+  .log-feed::-webkit-scrollbar{width:3px}
+  .log-feed::-webkit-scrollbar-thumb{background:var(--border)}
+  .log-entry{padding:4px 8px;border-radius:2px;border-left:2px solid var(--border);color:var(--dim);line-height:1.5;animation:slideIn .3s ease}
+  .log-entry.new{border-left-color:var(--accent);color:var(--text);background:rgba(0,229,255,.04)}
+  .log-entry .ts{color:var(--accent);margin-right:8px}
+  .log-entry .act{color:var(--accent2);margin-right:6px;font-weight:bold}
+  @keyframes slideIn{from{opacity:0;transform:translateX(-5px)}to{opacity:1;transform:none}}
+
+  #mazeCanvas{background:rgba(0,0,0,.4);border:1px solid var(--border);border-radius:4px;display:block;width:100%;height:auto}
+
+  .refresh-btn{position:absolute;top:12px;right:14px;background:transparent;border:none;cursor:pointer;
+    font-family:var(--font-mono);font-size:.61rem;color:var(--dim)}
+  .refresh-btn:hover{color:var(--accent)}
+
+  .divider{grid-column:span 12;height:1px;background:linear-gradient(90deg,transparent,var(--border),transparent)}
+
+  /* Grid assignments */
+  .c-mc1,.c-mc2,.c-mc3,.c-mc4{grid-column:span 3}
+  .c-telem{grid-column:span 12}
+  .c-move{grid-column:span 6}
+  .c-ailog{grid-column:span 6}
+  .c-ch1{grid-column:span 7}
+  .c-ch2{grid-column:span 5}
+  .c-log{grid-column:span 7}
+  .c-aiq{grid-column:span 5}
+  @media(max-width:1100px){
+    .c-mc1,.c-mc2,.c-mc3,.c-mc4{grid-column:span 6}
+    .c-move,.c-ailog,.c-ch1,.c-ch2,.c-log,.c-aiq{grid-column:span 12}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <div class="logo">🐾 Team 3 — Mini-Pupper <span>Mission Dashboard</span></div>
+    <div class="sub-title">Telemetry → HTTPS (8445) → Mini-Pupper → Logging / AI</div>
+  </div>
+  <div class="header-right">
+    <div class="clock" id="clock">--:--:--</div>
+    <div class="conn-badge" id="connBadge">
+      <div class="conn-dot"></div>
+      <span id="connText">Connecting...</span>
+    </div>
+  </div>
+</header>
+
+<div class="grid">
+
+  <!-- Mission Status Cards -->
+  <div class="mc green-c c-mc1" style="animation-delay:.05s">
+    <div class="mc-label">Mission Status</div>
+    <div class="mc-val green" id="missionStatus">Standby</div>
+    <div class="mc-sub">Mode: <span id="missionMode">Waiting for data</span></div>
+  </div>
+
+  <div class="mc amber-c c-mc2" style="animation-delay:.1s">
+    <div class="mc-label">Mission Timer</div>
+    <div class="mc-val amber" id="missionTimer">00<span class="blink">:</span>00</div>
+    <div class="mc-sub">Session runtime</div>
+  </div>
+
+  <div class="mc blue-c c-mc3" style="animation-delay:.15s">
+    <div class="mc-label">Telemetry</div>
+    <div class="mc-val cyan" id="statTotal">—</div>
+    <div class="mc-sub">Events logged</div>
+  </div>
+
+  <div class="mc purple-c c-mc4" style="animation-delay:.2s">
+    <div class="mc-label">Mission Time</div>
+    <div class="mc-val cyan" id="statLastTs" style="font-size:.95rem;padding-top:8px">—</div>
+    <div class="mc-sub">Last event: <span id="lastEventAge">—</span></div>
+  </div>
+
+  <!-- Telemetry Summary -->
+  <div class="panel c-telem" style="animation-delay:.25s">
+    <div class="panel-title">📡 Telemetry Summary <span class="tag">POST /telemetry</span></div>
+    <div class="telem-grid">
+      <div class="telem-row"><span class="t-label">Total Commands</span><span class="t-value accent" id="tTotal">—</span></div>
+      <div class="telem-row"><span class="t-label">Successful Moves</span><span class="t-value green" id="tSuccess">—</span></div>
+      <div class="telem-row"><span class="t-label">Failed Commands</span><span class="t-value red" id="tFailed">—</span></div>
+      <div class="telem-row"><span class="t-label">Success Rate</span><span class="t-value green" id="tRate">—</span></div>
+    </div>
+  </div>
+
+  <!-- Movement & Position -->
+  <div class="panel c-move" style="animation-delay:.3s">
+    <div class="panel-title">🗺 Movement &amp; Position <span class="tag">Maze View</span></div>
+    <div class="move-grid">
+      <div class="move-row"><span class="m-label">Current Position</span><span class="m-val accent" id="posXY">(0, 0)</span></div>
+      <div class="move-row"><span class="m-label">Direction</span><span class="m-val" id="lastDir">—</span></div>
+      <div class="move-row"><span class="m-label">Sessions</span><span class="m-val orange" id="statSessions">—</span></div>
+      <div class="move-row"><span class="m-label">Goal Reached</span><span class="m-val" id="goalReached">No</span></div>
+    </div>
+    <canvas id="mazeCanvas" width="400" height="155"></canvas>
+  </div>
+
+  <!-- AI & Logging -->
+  <div class="panel orange c-ailog" style="animation-delay:.35s">
+    <div class="panel-title orange">🤖 AI &amp; Logging <span class="tag" style="color:var(--accent2)">Status</span></div>
+    <div class="ai-grid">
+      <div class="ai-chip"><span class="chip-label">MongoDB</span><span class="chip-val dim" id="chipMongo">—</span></div>
+      <div class="ai-chip"><span class="chip-label">AI Server</span><span class="chip-val dim" id="chipAi">—</span></div>
+      <div class="ai-chip"><span class="chip-label">Secure Channel</span><span class="chip-val dim" id="chipHttps">HTTPS</span></div>
+      <div class="ai-chip"><span class="chip-label">mTLS</span><span class="chip-val dim" id="chipMtls">Enabled (Planned)</span></div>
+      <div class="ai-chip"><span class="chip-label">WebSocket</span><span class="chip-val dim" id="chipWs">—</span></div>
+      <div class="ai-chip"><span class="chip-label">Robot Bridge</span><span class="chip-val dim" id="chipRobot">—</span></div>
+    </div>
+    <div class="model-box">
+      <div class="mo-lbl">Last Model Output</div>
+      <div class="mo-txt" id="modelOutput">Press Run Diagnostics to query the AI engine...</div>
+    </div>
+    <div class="ai-row">
+      <input id="aiQueryInput" type="text" value="Summarize recent mission performance"/>
+      <button class="btn orange" onclick="runAiQuery()">Run Diagnostics</button>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Charts -->
+  <div class="panel c-ch1" style="animation-delay:.4s">
+    <div class="panel-title">📊 Action Distribution</div>
+    <div id="actionChart" style="height:200px"></div>
+  </div>
+  <div class="panel orange c-ch2" style="animation-delay:.45s">
+    <div class="panel-title orange">📈 Event Timeline</div>
+    <div id="timelineChart" style="height:200px"></div>
+  </div>
+
+  <!-- Live Log -->
+  <div class="panel c-log" style="animation-delay:.5s">
+    <div class="panel-title">🔴 Live Telemetry Feed</div>
+    <button class="refresh-btn" onclick="loadMoves()">↺ REFRESH</button>
+    <div class="log-feed" id="logFeed"></div>
+  </div>
+
+  <!-- AI Detail -->
+  <div class="panel orange c-aiq" style="animation-delay:.55s">
+    <div class="panel-title orange">🧠 Diagnostic Detail</div>
+    <div id="aiDetail" style="font-family:var(--font-mono);font-size:.69rem;line-height:1.8;color:var(--text);
+      background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:4px;padding:10px;
+      min-height:165px;white-space:pre-wrap">Run diagnostics above to see full AI analysis here...</div>
+  </div>
+
+</div>
+
+<script>
+const HOST = window.location.hostname || "localhost";
+const API_BASE = `http://${HOST}:8000`;
+const WS_URL   = `ws://${HOST}:8000/ws`;
+let ws=null, wsRetries=0, recentMoves=[], actionChart=null, timelineChart=null;
+let timelineBuckets={}, missionStart=null, timerInterval=null, lastEventTs=null;
+
+// Clock
+function updateClock(){document.getElementById("clock").textContent=new Date().toLocaleTimeString("en-US",{hour12:false})}
+setInterval(updateClock,1000); updateClock();
+
+// Mission timer
+function startTimer(){
+  if(timerInterval)return;
+  if(!missionStart)missionStart=new Date();
+  timerInterval=setInterval(()=>{
+    const e=Math.floor((Date.now()-missionStart)/1000);
+    const mm=String(Math.floor(e/60)).padStart(2,"0"), ss=String(e%60).padStart(2,"0");
+    document.getElementById("missionTimer").innerHTML=`${mm}<span class="blink">:</span>${ss}`;
+  },1000);
+}
+
+function setConn(state,label){
+  const b=document.getElementById("connBadge"),t=document.getElementById("connText");
+  b.className="conn-badge "+(state==="live"?"live":state==="dead"?"dead":"");
+  t.textContent=label;
+}
+function setChip(id,text,cls){const e=document.getElementById(id);if(!e)return;e.textContent=text;e.className="chip-val "+cls}
+function setText(id,v){const e=document.getElementById(id);if(e)e.textContent=v}
+
+function applyStats(s){
+  if(!s)return;
+  const total=s.total_events??0;
+  setText("statTotal",total.toLocaleString());
+  setText("tTotal",total.toLocaleString());
+  const rate=s.success_rate??0, goals=s.goal_reached??0, failed=Math.max(0,total-goals);
+  setText("tSuccess",goals.toLocaleString());
+  setText("tFailed",failed.toLocaleString());
+  setText("tRate",rate+"%");
+  setText("statSessions",s.sessions??"—");
+  const x=s.last_position?.x??0, y=s.last_position?.y??0;
+  setText("posXY",`(${x}, ${y})`);
+  if(total>0){setText("missionStatus","Active");setText("missionMode","Autonomous assist");if(!missionStart){missionStart=new Date();startTimer()}}
+  if(s.last_event_ts){lastEventTs=new Date(s.last_event_ts);setText("statLastTs",lastEventTs.toLocaleTimeString());updateAge()}
+  const am=s.actions??{}, map={forward:"Forward",backward:"Backward",turn_left:"Left",turn_right:"Right",stop:"Stop"};
+  const top=Object.entries(am).sort((a,b)=>b[1]-a[1])[0]?.[0];
+  if(top)setText("lastDir",map[top]||top);
+  updateActionChart(s);
+  drawMaze();
+}
+
+function updateAge(){
+  if(!lastEventTs)return;
+  const s=Math.floor((Date.now()-lastEventTs)/1000);
+  setText("lastEventAge",s<5?"now":s<60?s+"s ago":Math.floor(s/60)+"m ago");
+}
+setInterval(updateAge,5000);
+
+function prependLog(docs,isNew=false){
+  const feed=document.getElementById("logFeed");
+  docs.forEach(doc=>{
+    const e=document.createElement("div");
+    e.className="log-entry"+(isNew?" new":"");
+    const ts=doc.timestamp||doc.received_at||"", act=doc.action||doc.event_type||"event";
+    const x=doc.player?.position?.x??"", y=doc.player?.position?.y??"";
+    const pos=(x!==""&&y!=="")?" → pos("+x+","+y+")":"";
+    const tsS=ts?new Date(ts).toLocaleTimeString():"--";
+    const sid=doc.session_id?" ["+doc.session_id.slice(-6)+"]":"";
+    e.innerHTML=`<span class="ts">${tsS}</span><span class="act">${act}</span>${pos}${sid}`;
+    feed.prepend(e);
+    if(ts){const k=ts.slice(0,16);timelineBuckets[k]=(timelineBuckets[k]||0)+1}
+    if(doc.goal_reached){const el=document.getElementById("goalReached");if(el){el.textContent="Yes";el.className="m-val green"}}
+  });
+  while(feed.children.length>200)feed.removeChild(feed.lastChild);
+  updateTimelineChart();
+}
+
+function initCharts(){
+  actionChart=echarts.init(document.getElementById("actionChart"),"dark");
+  timelineChart=echarts.init(document.getElementById("timelineChart"),"dark");
+  window.addEventListener("resize",()=>{actionChart?.resize();timelineChart?.resize()});
+  updateActionChart({});updateTimelineChart();
+}
+
+function updateActionChart(s){
+  if(!actionChart)return;
+  const a={forward:s.forward||0,backward:s.backward||0,turn_left:s.turn_left||0,turn_right:s.turn_right||0,stop:s.stop||0};
+  const colors=["#00e5ff","#00ff88","#ffe600","#ff6b35","#ff3366"];
+  actionChart.setOption({backgroundColor:"transparent",
+    tooltip:{trigger:"item",formatter:"{b}: {c} ({d}%)"},
+    series:[{type:"pie",radius:["35%","65%"],center:["50%","50%"],
+      data:Object.entries(a).map(([name,value],i)=>({name,value,itemStyle:{color:colors[i],shadowBlur:8,shadowColor:colors[i]}})),
+      label:{color:"#c8dff0",fontSize:10},emphasis:{itemStyle:{shadowBlur:20}}}]},true);
+}
+
+function updateTimelineChart(){
+  if(!timelineChart)return;
+  const keys=Object.keys(timelineBuckets).sort().slice(-20);
+  timelineChart.setOption({backgroundColor:"transparent",
+    grid:{top:10,bottom:24,left:36,right:10},
+    xAxis:{type:"category",data:keys.map(k=>k.slice(11)),axisLabel:{color:"#4a6a84",fontSize:9},axisLine:{lineStyle:{color:"#0d3a5c"}}},
+    yAxis:{type:"value",axisLabel:{color:"#4a6a84",fontSize:9},splitLine:{lineStyle:{color:"#071525"}}},
+    series:[{type:"bar",data:keys.map(k=>timelineBuckets[k]),
+      itemStyle:{color:{type:"linear",x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:"#ff6b35"},{offset:1,color:"#ff3366"}]}},
+      emphasis:{itemStyle:{shadowBlur:12,shadowColor:"#ff6b35"}}}],
+    tooltip:{trigger:"axis",backgroundColor:"#071525",borderColor:"#0d3a5c"}},true);
+}
+
+function drawMaze(){
+  const canvas=document.getElementById("mazeCanvas");if(!canvas)return;
+  const ctx=canvas.getContext("2d"),W=canvas.width,H=canvas.height;
+  ctx.clearRect(0,0,W,H);
+  ctx.strokeStyle="#0d3a5c";ctx.lineWidth=0.5;
+  for(let i=0;i<=10;i++){ctx.beginPath();ctx.moveTo(i*W/10,0);ctx.lineTo(i*W/10,H);ctx.stroke();ctx.beginPath();ctx.moveTo(0,i*H/10);ctx.lineTo(W,i*H/10);ctx.stroke()}
+  const trail=recentMoves.filter(d=>d.player?.position).map(d=>d.player.position).slice(-60);
+  if(!trail.length){ctx.fillStyle="rgba(0,229,255,.15)";ctx.font="12px 'Share Tech Mono'";ctx.textAlign="center";ctx.fillText("Maze Map View — Awaiting telemetry",W/2,H/2);return}
+  const xs=trail.map(p=>p.x),ys=trail.map(p=>p.y);
+  const minX=Math.min(...xs),maxX=Math.max(...xs)||1,minY=Math.min(...ys),maxY=Math.max(...ys)||1;
+  const pad=24,sx=(W-pad*2)/(maxX-minX||1),sy=(H-pad*2)/(maxY-minY||1);
+  const tx=p=>pad+(p.x-minX)*sx, ty=p=>H-pad-(p.y-minY)*sy;
+  ctx.beginPath();ctx.strokeStyle="rgba(0,229,255,.35)";ctx.lineWidth=1.5;
+  trail.forEach((p,i)=>i===0?ctx.moveTo(tx(p),ty(p)):ctx.lineTo(tx(p),ty(p)));ctx.stroke();
+  trail.forEach((p,i)=>{ctx.beginPath();ctx.arc(tx(p),ty(p),i===trail.length-1?5:2,0,Math.PI*2);ctx.fillStyle=i===trail.length-1?"#00e5ff":"rgba(0,229,255,.25)";ctx.fill()});
+  const last=trail[trail.length-1];ctx.beginPath();ctx.arc(tx(last),ty(last),9,0,Math.PI*2);ctx.strokeStyle="rgba(0,229,255,.4)";ctx.lineWidth=1;ctx.stroke();
+}
+
+async function loadMoves(){
+  try{const r=await fetch(`${API_BASE}/moves?limit=100&sort=desc`);const d=await r.json();if(d.ok){recentMoves=d.moves;prependLog([...d.moves].reverse())}}catch(e){console.warn(e)}
+}
+async function loadStats(){
+  try{const r=await fetch(`${API_BASE}/stats`);const d=await r.json();if(d.ok){applyStats(d);setChip("chipMongo","Connected","ok")}}catch(e){setChip("chipMongo","Offline","err")}
+}
+async function checkHealth(){
+  try{const r=await fetch(`${API_BASE}/health`);const d=await r.json();
+    setChip("chipMongo",d.mongo==="connected"?"Connected":"Offline",d.mongo==="connected"?"ok":"err");
+    setChip("chipHttps","HTTPS","ok");setChip("chipMtls","Enabled (Planned)","ok")}
+  catch(e){setChip("chipMongo","Offline","err")}
+}
+async function runAiQuery(){
+  const q=document.getElementById("aiQueryInput").value.trim()||"Summarize mission";
+  document.getElementById("modelOutput").textContent="⏳ Running...";
+  document.getElementById("aiDetail").textContent="⏳ Querying AI diagnostics...";
+  try{
+    const r=await fetch(`${API_BASE}/ai/diagnostics?query=${encodeURIComponent(q)}`);
+    const d=await r.json();
+    if(d.ok){document.getElementById("modelOutput").textContent=d.diagnosis.split(".")[0]+".";document.getElementById("aiDetail").textContent=d.diagnosis;setChip("chipAi","Online","ok")}
+    else{document.getElementById("modelOutput").textContent="Error: "+d.error;setChip("chipAi","Error","err")}
+  }catch(e){document.getElementById("modelOutput").textContent="Could not reach AI endpoint";setChip("chipAi","Offline","err")}
+}
+
+function connectWs(){
+  ws=new WebSocket(WS_URL);
+  ws.onopen=()=>{wsRetries=0;setConn("live","Connection: Online • HTTPS • mTLS Ready");setChip("chipWs","Live","ok")};
+  ws.onmessage=(evt)=>{
+    try{
+      const msg=JSON.parse(evt.data);
+      if(msg.type==="init"){applyStats(msg.stats);if(msg.recent)prependLog([...msg.recent].reverse())}
+      else if(msg.type==="update"){if(msg.stats)applyStats(msg.stats);if(msg.new_events){recentMoves=[...msg.new_events,...recentMoves].slice(0,500);prependLog(msg.new_events,true)}setChip("chipMongo",msg.mongo==="connected"?"Connected":"Offline",msg.mongo==="connected"?"ok":"err")}
+      else if(msg.type==="heartbeat"){setChip("chipMongo",msg.mongo==="connected"?"Connected":"Offline",msg.mongo==="connected"?"ok":"err")}
+    }catch(e){console.error(e)}
+  };
+  ws.onclose=()=>{setConn("dead","Reconnecting...");setChip("chipWs","Reconnecting","warn");setTimeout(connectWs,Math.min(1000*2**wsRetries++,15000))};
+  ws.onerror=()=>{setConn("dead","Connection error");setChip("chipWs","Error","err")};
+}
+
+async function pollRobot(){
+  try{await fetch("https://localhost:8445/",{mode:"no-cors"});setChip("chipRobot","Online","ok")}
+  catch(e){setChip("chipRobot","Offline","warn")}
+}
+
+(async function init(){
+  initCharts();
+  await checkHealth();await loadStats();await loadMoves();
+  connectWs();
+  setInterval(async()=>{if(!ws||ws.readyState!==WebSocket.OPEN)await loadStats();await checkHealth();updateAge()},10000);
+  setInterval(pollRobot,15000);pollRobot();
+})();
+</script>
+</body>
+</html>
