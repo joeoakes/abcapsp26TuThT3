@@ -35,7 +35,7 @@ python3 main.py
 Open `index.html` in your browser:
 
 ```bash
-open /path/to/abcapsp26TuThT3/dashboard/index.html
+open /Users/alicia/abcapsp26TuThT3/dashboard/index.html
 ```
 
 ### Requirements
