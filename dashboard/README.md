@@ -1,30 +1,48 @@
-# 🐾 Team 3 – Mini-Pupper Mission Dashboard (Mockup)
+# 🐾 Team 3 – Mini-Pupper Mission Dashboard
 
 ## Overview
 
-This folder contains the mockup design for the Team 3 Mini-Pupper Mission Dashboard.
+This folder contains the live mission dashboard for the Team 3 Mini-Pupper system.
 
-The dashboard represents the planned frontend interface that will visualize:
+The dashboard provides real-time visualization of:
 
-- Mission status  
-- Telemetry data  
-- Robot movement information  
-- AI and logging system health  
-
-⚠️ This is currently a static mockup (no live backend integration).
+- Mission status
+- Telemetry data
+- Robot movement information
+- AI and logging system health
 
 ---
 
-## Purpose
+## How to Run
 
-The mission dashboard is designed to:
+### Step 1 — Open SSH Tunnel to Logging Server
 
-- Display mission status
-- Show robot connection state
-- Visualize telemetry metrics
-- Present movement and position data
-- Indicate MongoDB & AI server health
-- Reflect secure communication status (HTTPS / mTLS)
+```bash
+ssh -L 27017:localhost:27017 amp7777@10.170.8.130
+```
+
+Keep this terminal open the entire time.
+
+### Step 2 — Start the Dashboard Backend
+
+```bash
+cd dashboard
+python3 main.py
+```
+
+### Step 3 — Open the Dashboard
+
+Open `index.html` in your browser:
+
+```bash
+open /path/to/abcapsp26TuThT3/dashboard/index.html
+```
+
+### Requirements
+
+```bash
+pip3 install fastapi uvicorn pymongo python-dotenv requests websockets
+```
 
 ---
 
@@ -32,51 +50,61 @@ The mission dashboard is designed to:
 
 Telemetry flow in our system:
 
-GameHat Maze App  
-↓ HTTPS (Port 8445)  
-Mini-Pupper Telemetry Receiver  
-↓  
-Logging Server (MongoDB)  
-↓  
-AI Server  
-
-The dashboard is intended to visualize processed telemetry and AI outputs from this pipeline.
+```
+GameHat Maze App
+↓ HTTPS (Port 8445)
+Mini-Pupper Telemetry Receiver
+↓
+Logging Server (MongoDB) — 10.170.8.130
+↓
+main.py (reads MongoDB via SSH tunnel, pushes via WebSocket)
+↓
+Dashboard (index.html)
+↓
+AI Server — 10.170.8.109
+```
 
 ---
 
 ## Dashboard Sections
 
-### 1.Status Overview
+### 1. Status Overview
 
-- Mission Status  
-- Robot Status (Connected)  
-- Total Telemetry Events  
-- Mission Timer (Session Runtime)  
+- Mission Status
+- Mission Timer (Session Runtime)
+- Total Telemetry Events
+- Last Event Timestamp
 - Secure Connection Indicator (HTTPS / mTLS)
 
-### 2.Telemetry Summary
+### 2. Telemetry Summary
 
-- Total Commands  
-- Successful Moves  
-- Failed Commands  
-- Success Rate  
-- Last Event Timestamp  
+- Total Commands
+- Successful Moves
+- Failed Commands
+- Success Rate
 
-### 3.Movement & Position
+### 3. Movement & Position
 
-- Current (X, Y) Maze Coordinates  
-- Direction  
-- Speed  
-- Goal Reached Indicator  
-- Maze Map Visualization Placeholder  
+- Current (X, Y) Maze Coordinates
+- Direction
+- Goal Reached Indicator
+- Live Maze Map Visualization
 
-### 4.AI & Logging
+### 4. AI & Logging
 
-- MongoDB Status  
-- AI Server Status  
-- Secure Channel Status  
-- mTLS Status  
-- Last Model Output  
+- MongoDB Status
+- AI Server Status
+- Secure Channel Status (HTTPS)
+- mTLS Status
+- WebSocket Status
+- Robot Bridge Status
+- Last Model Output
+
+### 5. Charts
+
+- Action Distribution (pie chart)
+- Event Timeline (bar chart)
+- Live Telemetry Feed
 
 ---
 
@@ -84,32 +112,21 @@ The dashboard is intended to visualize processed telemetry and AI outputs from t
 
 The dashboard reflects the system's secure telemetry design:
 
-- HTTPS is used for telemetry transmission  
-- mTLS support is planned / enforced  
-- Secure connection status is displayed in the UI  
+- HTTPS is used for telemetry transmission
+- mTLS support is enforced on port 8445
+- MongoDB is accessed via SSH tunnel only — never exposed publicly
+- Secure connection status is displayed in the UI
 
 ---
 
 ## Current Status
 
-This is a visual mockup only.
+This is a live integrated dashboard.
 
-- No live database connection  
-- No real-time telemetry feed  
-- Static sample data used for layout demonstration  
-
----
-
-## Future Enhancements
-
-Planned improvements include:
-
-- Live API integration with backend telemetry service  
-- WebSocket-based real-time updates  
-- Real-time maze visualization  
-- Command history timeline  
-- Error analytics charts  
-- Authentication & role-based access control  
+- ✅ Live MongoDB connection via SSH tunnel
+- ✅ Real-time telemetry feed via WebSocket
+- ✅ Live maze map from player position data
+- ✅ AI diagnostics endpoint (local fallback if AI server offline)
 
 ---
 
@@ -117,8 +134,8 @@ Planned improvements include:
 
 Mini-Pupper + Maze App + Telemetry + AI Integration
 
---- 
-
+---
 ## Current Status
 
 ![Mission Dashboard Preview](dashboard.png)
+![Mission Dashboard Preview](dashboard.png.2)
