@@ -24,9 +24,9 @@ static void on_sigint(int signo) {
 #define MAX_LIST_BYTES (1024 * 1024) /* 1 MiB */
 
 #define DEFAULT_PORT 8445
-#define DEFAULT_MONGO_URI "mongodb://localhost:27017"
+#define DEFAULT_MONGO_URI "mongodb://10.170.8.130:27017"
 #define DEFAULT_MONGO_DB  "maze"
-#define DEFAULT_MONGO_COL "moves"
+#define DEFAULT_MONGO_COL "team3ttmoves"
 
 #define DEFAULT_REDIS_HOST "127.0.0.1"
 #define DEFAULT_REDIS_PORT 6379
