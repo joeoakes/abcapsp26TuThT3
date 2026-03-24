@@ -138,4 +138,4 @@ Mini-Pupper + Maze App + Telemetry + AI Integration
 ## Current Status
 
 ![Mission Dashboard Preview](dashboard.png)
-![Mission Dashboard Preview](dashboard.png.2)
+![Mission Dashboard Preview](dashboard.png.2.png)
