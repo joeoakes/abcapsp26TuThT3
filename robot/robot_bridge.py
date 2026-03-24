@@ -11,11 +11,11 @@ Usage:
 
 Environment variables:
     ROBOT_PORT      - HTTPS listen port          (default: 8445)
-    SPEED           - linear.x magnitude m/s     (default: 0.5)
+    SPEED           - linear.x magnitude m/s     (default: 1.0)
     TURN_SPEED      - angular.z magnitude rad/s  (default: 1.0)
     TURN_ANGLE_MULT - angular.z duration mult    (default: 2.0)
     TURN_MOVE_DELAY - wait after turn before fwd (default: 0.5)
-    MOVE_DURATION   - seconds per movement burst (default: 0.5)
+    MOVE_DURATION   - seconds per movement burst (default: 2.0)
     CERT_FILE       - path to server TLS cert    (default: certs/server.crt)
     KEY_FILE        - path to server TLS key     (default: certs/server.key)
     CA_CERT_FILE    - trusted client CA cert     (default: certs/ca.crt)
@@ -38,11 +38,11 @@ from geometry_msgs.msg import Twist
 
 # Configuration (override via environment variables)
 ROBOT_PORT = int(os.environ.get("ROBOT_PORT", "8445"))
-SPEED = float(os.environ.get("SPEED", "0.5"))
+SPEED = float(os.environ.get("SPEED", "1.0"))
 TURN_SPEED = float(os.environ.get("TURN_SPEED", "1.0"))
 TURN_ANGLE_MULT = float(os.environ.get("TURN_ANGLE_MULT", "2.0"))
 TURN_MOVE_DELAY = float(os.environ.get("TURN_MOVE_DELAY", "0.5"))
-MOVE_DURATION = float(os.environ.get("MOVE_DURATION", "0.5"))
+MOVE_DURATION = float(os.environ.get("MOVE_DURATION", "2.0"))
 CERT_FILE = os.environ.get("CERT_FILE", "certs/server.crt")
 KEY_FILE = os.environ.get("KEY_FILE", "certs/server.key")
 CA_CERT_FILE = os.environ.get("CA_CERT_FILE", "certs/ca.crt")
