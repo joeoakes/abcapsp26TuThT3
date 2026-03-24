@@ -91,6 +91,11 @@ static void post_json_to_server(const char* json) {
   CURLcode res = curl_easy_perform(curl);
   if (res != CURLE_OK) {
     fprintf(stderr, "curl POST failed: %s\n", curl_easy_strerror(res));
+  } else {
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    if (http_code != 200)
+      fprintf(stderr, "telemetry HTTP %ld\n", http_code);
   }
 
   curl_slist_free_all(headers);

@@ -317,12 +317,18 @@ static enum MHD_Result request_handler(void *cls,
                                     config.mongo_db,
                                     config.mongo_col);
 
-    mongoc_collection_insert_one(col, doc, NULL, NULL, &error);
+    bool inserted = mongoc_collection_insert_one(col, doc, NULL, NULL, &error);
     mongoc_collection_destroy(col);
     bson_destroy(doc);
 
-    const char *response = "{\"status\":\"ok\"}";
-    enum MHD_Result ret = respond_json(connection, MHD_HTTP_OK, response);
+    enum MHD_Result ret;
+    if (!inserted) {
+        fprintf(stderr, "MongoDB insert failed: %s\n", error.message);
+        ret = respond_json(connection, MHD_HTTP_INTERNAL_SERVER_ERROR,
+                           "{\"status\":\"error\",\"message\":\"MongoDB insert failed\"}");
+    } else {
+        ret = respond_json(connection, MHD_HTTP_OK, "{\"status\":\"ok\"}");
+    }
 
     free(ci->data);
     free(ci);
