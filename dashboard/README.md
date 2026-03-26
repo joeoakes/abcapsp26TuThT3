@@ -15,33 +15,44 @@ The dashboard provides real-time visualization of:
 
 ## How to Run
 
-### Step 1 — Open SSH Tunnel to Logging Server
-
-```bash
-ssh -L 27017:localhost:27017 amp7777@10.170.8.130
-```
-
-Keep this terminal open the entire time.
-
-### Step 2 — Start the Dashboard Backend
-
+## Setup
+ 
+### Step 1 — Create a virtual environment (first time only)
+ 
 ```bash
 cd dashboard
-python3 main.py
+python3 -m venv venv
+source venv/bin/activate
+pip install fastapi uvicorn pymongo python-dotenv requests websockets
 ```
-
-### Step 3 — Open the Dashboard
-
-Open `index.html` in your browser:
-
+ 
+### Step 2 — Open SSH tunnel to logging server
+ 
+Open a dedicated terminal and keep it running:
+ 
 ```bash
-open /path/to/abcapsp26TuThT3/dashboard/index.html
+ssh -L 27017:localhost:27017 'USERID'@10.170.8.130
 ```
-
-### Requirements
-
+ 
+This tunnels MongoDB (port 27017) from the logging server to your local machine.
+ 
+### Step 3 — Open and Start the dashboard backend
+ 
+In a second terminal:
+ 
 ```bash
-pip3 install fastapi uvicorn pymongo python-dotenv requests websockets
+cd dashboard
+source venv/bin/activate
+open /Users/alicia/abcapsp26TuThT3-main/dashboard/index.html
+MONGO_URI="mongodb://localhost:27017" MONGO_DB="maze" MONGO_COL="moves" python3 main.py
+```
+ 
+You should see:
+ 
+```
+[db] Connected to MongoDB: mongodb://localhost:27017
+[server] Dashboard API running at http://localhost:8000
+[poller] Starting MongoDB poll loop (2s interval)
 ```
 
 ---
