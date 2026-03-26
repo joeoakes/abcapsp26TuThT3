@@ -52,7 +52,7 @@ static int g_moves_up = 0;
 static int g_moves_down = 0;
 
 // A* autonomous navigation state
-static int  g_auto_nav_delay_ms = 3000; // ms between auto moves (default 3s)
+static int  g_auto_nav_delay_ms = 5000; // ms between auto moves (default 5s)
 static bool g_auto_nav = false;
 typedef struct { int x, y; } Point;
 static Point g_auto_path[MAZE_W * MAZE_H]; // Path from current pos to goal

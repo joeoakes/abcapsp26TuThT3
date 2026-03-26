@@ -56,7 +56,7 @@ Distribute certs securely:
 | `ROBOT_PORT`      | `8445`              | HTTPS listen port                    |
 | `SPEED`           | `1.0`               | Linear velocity (m/s)                |
 | `TURN_SPEED`      | `1.0`               | Angular velocity (rad/s)             |
-| `TURN_ANGLE_MULT` | `2.0`               | Turning duration multiplier          |
+| `TURN_ANGLE_MULT` | `4.0`               | Turning duration multiplier          |
 | `TURN_MOVE_DELAY` | `0.5`               | Delay after turning before moving    |
 | `MOVE_DURATION`   | `2.0`               | Seconds per movement burst           |
 | `CERT_FILE`       | `certs/server.crt`  | TLS certificate path                 |
