@@ -51,6 +51,15 @@ static int g_moves_right = 0;
 static int g_moves_up = 0;
 static int g_moves_down = 0;
 
+// A* autonomous navigation state
+static int  g_auto_nav_delay_ms = 3000; // ms between auto moves (default 3s)
+static bool g_auto_nav = false;
+typedef struct { int x, y; } Point;
+static Point g_auto_path[MAZE_W * MAZE_H]; // Path from current pos to goal
+static int g_auto_path_len = 0; // Total steps in path
+static int g_auto_path_idx = 0; // Next step index
+static Uint32 g_auto_last_move = 0; // Tick of last auto move
+
 typedef struct {
   char* items[256];
   int head;
@@ -219,10 +228,12 @@ static int queue_worker(void* userdata) {
     queue->items[queue->head] = NULL;
     queue->head = (queue->head + 1) % (int)(sizeof(queue->items) / sizeof(queue->items[0]));
     queue->count--;
+    bool still_running = queue->running;
     SDL_UnlockMutex(queue->mutex);
 
     if (json) {
-      post_fn(json);
+      if (still_running)
+        post_fn(json);
       free(json);
     }
   }
@@ -481,8 +492,81 @@ static void draw_maze(SDL_Renderer* r) {
   }
 }
 
+// A* pathfinding: find shortest path from (sx,sy) to (gx,gy)
+// Returns path length stored in g_auto_path[] (excluding start, including goal)
+static int astar_solve(int sx, int sy, int gx, int gy) {
+  typedef struct { int x, y, f, g_cost; } Node;
+  static Node open[MAZE_W * MAZE_H];
+  static int came_from[MAZE_H][MAZE_W]; // Encodes parent: y*MAZE_W+x, or -1
+  static int cost[MAZE_H][MAZE_W];
+  static bool closed[MAZE_H][MAZE_W];
+  int open_count = 0;
+
+  for (int y = 0; y < MAZE_H; y++)
+    for (int x = 0; x < MAZE_W; x++) {
+      came_from[y][x] = -1;
+      cost[y][x] = 999999;
+      closed[y][x] = false;
+    }
+
+  cost[sy][sx] = 0;
+  int h = abs(gx - sx) + abs(gy - sy);
+  open[open_count++] = (Node){sx, sy, h, 0};
+
+  const int dx[4] = {0, 1, 0, -1};
+  const int dy[4] = {-1, 0, 1, 0};
+  const uint8_t wall_mask[4] = {WALL_N, WALL_E, WALL_S, WALL_W};
+
+  while (open_count > 0) {
+    // Find node with lowest f in open set
+    int best = 0;
+    for (int i = 1; i < open_count; i++)
+      if (open[i].f < open[best].f) best = i;
+
+    Node cur = open[best];
+    open[best] = open[--open_count];
+
+    if (cur.x == gx && cur.y == gy) break;
+    if (closed[cur.y][cur.x]) continue;
+    closed[cur.y][cur.x] = true;
+
+    for (int d = 0; d < 4; d++) {
+      if (g[cur.y][cur.x].walls & wall_mask[d]) continue;
+      int nx = cur.x + dx[d], ny = cur.y + dy[d];
+      if (!in_bounds(nx, ny) || closed[ny][nx]) continue;
+
+      int new_g = cur.g_cost + 1;
+      if (new_g < cost[ny][nx]) {
+        cost[ny][nx] = new_g;
+        came_from[ny][nx] = cur.y * MAZE_W + cur.x;
+        int new_h = abs(gx - nx) + abs(gy - ny);
+        open[open_count++] = (Node){nx, ny, new_g + new_h, new_g};
+      }
+    }
+  }
+
+  // Reconstruct path
+  if (came_from[gy][gx] == -1 && !(sx == gx && sy == gy)) return 0;
+
+  int path_len = 0;
+  int cx = gx, cy = gy;
+  while (!(cx == sx && cy == sy)) {
+    g_auto_path[path_len++] = (Point){cx, cy};
+    int prev = came_from[cy][cx];
+    cx = prev % MAZE_W;
+    cy = prev / MAZE_W;
+  }
+  // Reverse the path so index 0 is the first step
+  for (int i = 0; i < path_len / 2; i++) {
+    Point tmp = g_auto_path[i];
+    g_auto_path[i] = g_auto_path[path_len - 1 - i];
+    g_auto_path[path_len - 1 - i] = tmp;
+  }
+  return path_len;
+}
+
 // Player / goal rendering
-static void draw_player_goal(SDL_Renderer* r, int px, int py) {
+static void draw_player_goal(SDL_Renderer* r, int px, int py, bool auto_mode) {
   int ox = PAD;
   int oy = PAD;
 
@@ -503,7 +587,12 @@ static void draw_player_goal(SDL_Renderer* r, int px, int py) {
     CELL - 16,
     CELL - 16
   };
-  SDL_SetRenderDrawColor(r, 230, 200, 40, 255);
+
+  // Change color based on mode (normal -> yellow, auto -> blue)
+  if (auto_mode)
+    SDL_SetRenderDrawColor(r, 50, 100, 230, 255);
+  else
+    SDL_SetRenderDrawColor(r, 230, 200, 40, 255);
   SDL_RenderFillRect(r, &p);
 }
 
@@ -755,6 +844,14 @@ int main(int argc, char** argv) {
   printf("Robot mTLS client key:  %s\n", g_robot_client_key  ? g_robot_client_key  : "(unset)");
   printf("Robot mTLS CA cert:     %s\n", g_robot_ca_cert     ? g_robot_ca_cert     : "(unset)");
 
+  // Auto-nav delay (ms between A* moves, default 3000)
+  const char* env_delay = getenv("AUTO_NAV_DELAY");
+  if (env_delay && strlen(env_delay) > 0) {
+    int d = atoi(env_delay);
+    if (d > 0) g_auto_nav_delay_ms = d;
+  }
+  printf("Auto-nav delay:  %d ms\n", g_auto_nav_delay_ms);
+
   if (g_robot_url && (!g_robot_client_cert || !g_robot_client_key || !g_robot_ca_cert)) {
     fprintf(stderr, "ROBOT_URL is set but ROBOT_CLIENT_CERT/ROBOT_CLIENT_KEY/ROBOT_CA_CERT are required; robot link disabled\n");
     g_robot_url = NULL;
@@ -900,9 +997,27 @@ int main(int argc, char** argv) {
 
         if (k == SDLK_r) {
           if (!won) post_mission_summary("aborted", "player regenerated");
+          g_auto_nav = false;
           regenerate(&px, &py, win);
           robot_heading = ROBOT_HEADING_NORTH;
           won = false;
+        }
+
+        if (k == SDLK_m && !won) {
+          if (!g_auto_nav) {
+            // Compute A* path from current position to goal
+            g_auto_path_len = astar_solve(px, py, MAZE_W - 1, MAZE_H - 1);
+            g_auto_path_idx = 0;
+            g_auto_last_move = SDL_GetTicks();
+            g_auto_nav = (g_auto_path_len > 0);
+            if (g_auto_nav)
+              printf("[A*] auto-nav ON  (%d steps to goal)\n", g_auto_path_len);
+            else
+              printf("[A*] no path found\n");
+          } else {
+            g_auto_nav = false;
+            printf("[A*] auto-nav OFF\n");
+          }
         }
 
         if (!won) {
@@ -944,8 +1059,38 @@ int main(int argc, char** argv) {
       }
     }
 
+    // A* auto-navigation: advance one step on timer
+    if (g_auto_nav && !won && g_auto_path_idx < g_auto_path_len) {
+      Uint32 now = SDL_GetTicks();
+      if (now - g_auto_last_move >= (Uint32)g_auto_nav_delay_ms) {
+        Point next = g_auto_path[g_auto_path_idx];
+        int mdx = next.x - px;
+        int mdy = next.y - py;
+        bool moved = try_move(&px, &py, mdx, mdy);
+        if (moved) {
+          update_move_counters(mdx, mdy);
+          g_move_sequence++;
+          bool goal_reached = (px == MAZE_W - 1 && py == MAZE_H - 1);
+          output_json_telemetry("a_star", px, py, goal_reached);
+          maybe_send_robot(mdx, mdy, &robot_heading);
+          g_auto_path_idx++;
+          g_auto_last_move = now;
+
+          if (goal_reached) {
+            won = true;
+            g_auto_nav = false;
+            post_mission_summary("success", "");
+            SDL_SetWindowTitle(win, "You win! Press R to regenerate, Esc to quit");
+          }
+        } else {
+          // Path blocked (this case should never happen...)
+          g_auto_nav = false;
+        }
+      }
+    }
+
     draw_maze(r);
-    draw_player_goal(r, px, py);
+    draw_player_goal(r, px, py, g_auto_nav);
 
     SDL_RenderPresent(r);
   }
