@@ -20,15 +20,13 @@
 // Joystick dead zone threshold (0–32767 range)
 #define JOYSTICK_DEADZONE 8000
 
-// Default HTTP server endpoint for telemetry
-// Run with: `TELEMETRY_URL="http://172.24.205.173:8080/move" ./maze_sdl2`
-// On WSL: `export MONGO_URI="mongodb://172.21.128.1:27017"`, then `./maze_http_mongo`
-static const char* g_telemetry_url = "https://localhost:8445/move";
+// Default per-move telemetry URL
+static const char* g_telemetry_url = "https://10.170.8.130:8445/move"; // "https://localhost:8445/move"
 
 // mTLS client certificate paths (override via CLIENT_CERT, CLIENT_KEY, CA_CERT)
-static const char* g_client_cert = "../https/certs/client.crt";
-static const char* g_client_key  = "../https/certs/client.key";
-static const char* g_ca_cert     = "../https/certs/ca.crt";
+static const char* g_client_cert = "../https_final/certs/client.crt";
+static const char* g_client_key  = "../https_final/certs/client.key";
+static const char* g_ca_cert     = "../https_final/certs/ca.crt";
 
 // Mini-Pupper mTLS cert paths (required when ROBOT_URL is set)
 static const char* g_robot_client_cert = "../robot/certs/client.crt";
@@ -43,6 +41,16 @@ static const char* g_robot_url = "https://10.170.9.185:8445/robot";
 static char g_session_id[40];
 static int  g_move_sequence = 0;
 
+// Default mission summary endpoint
+static const char* g_mission_url = "https://10.170.8.130:8445/mission"; // "https://localhost:8445/mission"
+
+// Session timing and move counters for mission summary
+static time_t g_session_start = 0;
+static int g_moves_left = 0;
+static int g_moves_right = 0;
+static int g_moves_up = 0;
+static int g_moves_down = 0;
+
 typedef struct {
   char* items[256];
   int head;
@@ -56,6 +64,7 @@ typedef struct {
 
 static TelemetryQueue g_telemetry_queue;
 static TelemetryQueue g_robot_queue;
+static TelemetryQueue g_mission_queue;
 
 // Discard curl response body
 static size_t discard_response(void* ptr, size_t size, size_t nmemb, void* userdata) {
@@ -96,6 +105,46 @@ static void post_json_to_server(const char* json) {
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
     if (http_code != 200)
       fprintf(stderr, "telemetry HTTP %ld\n", http_code);
+  }
+
+  curl_slist_free_all(headers);
+  curl_easy_cleanup(curl);
+}
+
+// POST JSON string to the mission summary server
+static void post_json_to_mission(const char* json) {
+  if (!g_mission_url) return;
+
+  CURL* curl = curl_easy_init();
+  if (!curl) {
+    fprintf(stderr, "curl_easy_init failed\n");
+    return;
+  }
+
+  struct curl_slist* headers = NULL;
+  headers = curl_slist_append(headers, "Content-Type: application/json");
+
+  curl_easy_setopt(curl, CURLOPT_URL, g_mission_url);
+  curl_easy_setopt(curl, CURLOPT_POST, 1L);
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json);
+  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, discard_response);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
+  // mTLS: present client cert, verify server cert via CA
+  curl_easy_setopt(curl, CURLOPT_SSLCERT,        g_client_cert);
+  curl_easy_setopt(curl, CURLOPT_SSLKEY,         g_client_key);
+  curl_easy_setopt(curl, CURLOPT_CAINFO,         g_ca_cert);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+
+  CURLcode res = curl_easy_perform(curl);
+  if (res != CURLE_OK) {
+    fprintf(stderr, "mission POST failed: %s\n", curl_easy_strerror(res));
+  } else {
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    if (http_code != 200)
+      fprintf(stderr, "mission HTTP %ld\n", http_code);
   }
 
   curl_slist_free_all(headers);
@@ -477,11 +526,16 @@ static bool try_move(int* px, int* py, int dx, int dy) {
   return true;
 }
 
+// Forward declarations for session helpers used by regenerate
+static void generate_session_id(void);
+static void reset_session_stats(void);
+
 static void regenerate(int* px, int* py, SDL_Window* win) {
   maze_init();
   maze_generate(0, 0);
   *px = 0; *py = 0;
-  g_move_sequence = 0; // Reset move sequence on maze regeneration
+  generate_session_id();
+  reset_session_stats();
   SDL_SetWindowTitle(win, "SDL2 Maze - Reach the green goal (R to regenerate)");
 }
 
@@ -496,6 +550,71 @@ static void get_iso8601_timestamp(char* buf, size_t size) {
   time_t now = time(NULL);
   struct tm* gm = gmtime(&now);
   strftime(buf, size, "%Y-%m-%dT%H:%M:%SZ", gm);
+}
+
+static void reset_session_stats(void) {
+  g_move_sequence = 0;
+  g_moves_left = 0;
+  g_moves_right = 0;
+  g_moves_up = 0;
+  g_moves_down = 0;
+  g_session_start = time(NULL);
+}
+
+static void update_move_counters(int dx, int dy) {
+  if (dx == -1) g_moves_left++;
+  else if (dx == 1) g_moves_right++;
+  else if (dy == -1) g_moves_up++;
+  else if (dy == 1) g_moves_down++;
+}
+
+static void post_mission_summary(const char* result, const char* abort_reason) {
+  if (!g_mission_url) return;
+
+  time_t now = time(NULL);
+  int64_t start_ts = (int64_t)g_session_start;
+  int64_t end_ts = (int64_t)now;
+  int64_t duration = end_ts - start_ts;
+  if (duration < 0) duration = 0;
+
+  int total = g_moves_left + g_moves_right + g_moves_up + g_moves_down;
+  double distance = (double)total;
+
+  char json[1024];
+  snprintf(json, sizeof(json),
+    "{"
+    "\"mission_id\":\"%s\","
+    "\"robot_id\":\"maze_player\","
+    "\"mission_type\":\"maze\","
+    "\"start_time\":%lld,"
+    "\"end_time\":%lld,"
+    "\"moves_left_turn\":%d,"
+    "\"moves_right_turn\":%d,"
+    "\"moves_straight\":%d,"
+    "\"moves_reverse\":%d,"
+    "\"moves_total\":%d,"
+    "\"distance_traveled\":%.6f,"
+    "\"duration_seconds\":%lld,"
+    "\"mission_result\":\"%s\","
+    "\"abort_reason\":\"%s\""
+    "}",
+    g_session_id,
+    (long long)start_ts,
+    (long long)end_ts,
+    g_moves_left,
+    g_moves_right,
+    g_moves_up,
+    g_moves_down,
+    total,
+    distance,
+    (long long)duration,
+    result,
+    abort_reason ? abort_reason : "");
+
+  printf("[mission summary] %s\n", json);
+  fflush(stdout);
+
+  enqueue_json(&g_mission_queue, "mission", json);
 }
 
 static void output_json_telemetry(const char* device, int px, int py, bool goal_reached) {
@@ -569,6 +688,7 @@ static bool handle_joystick_axis(int axis, Sint16 value, int* px, int* py, bool*
   }
 
   if (moved) {
+    update_move_counters(mdx, mdy);
     g_move_sequence++;
     bool goal_reached = (*px == MAZE_W - 1 && *py == MAZE_H - 1);
     output_json_telemetry("joystick", *px, *py, goal_reached);
@@ -576,6 +696,7 @@ static bool handle_joystick_axis(int axis, Sint16 value, int* px, int* py, bool*
 
     if (goal_reached) {
       *won = true;
+      post_mission_summary("success", "");
       SDL_SetWindowTitle(win, "You win! Press R to regenerate, Esc to quit");
     }
   }
@@ -596,6 +717,13 @@ int main(int argc, char** argv) {
     g_telemetry_url = env_url;
   }
   printf("Telemetry URL: %s\n", g_telemetry_url);
+
+  // Mission summary URL
+  const char* env_mission = getenv("MISSION_URL");
+  if (env_mission && strlen(env_mission) > 0) {
+    g_mission_url = env_mission;
+  }
+  printf("Mission URL:   %s\n", g_mission_url ? g_mission_url : "(disabled)");
 
   // Robot bridge URL (optional)
   const char* env_robot = getenv("ROBOT_URL");
@@ -634,6 +762,7 @@ int main(int argc, char** argv) {
 
   // Generate session ID for telemetry
   generate_session_id();
+  reset_session_stats();
 
   // For testing w/ PS5 controller
   //SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5, "1");
@@ -650,6 +779,13 @@ int main(int argc, char** argv) {
     SDL_Quit();
     curl_global_cleanup();
     return 1;
+  }
+
+  if (g_mission_url) {
+    if (!init_queue(&g_mission_queue, "mission_worker", post_json_to_mission)) {
+      fprintf(stderr, "Failed to start mission worker (continuing without mission summaries)\n");
+      g_mission_url = NULL;
+    }
   }
 
   if (g_robot_url) {
@@ -763,6 +899,7 @@ int main(int argc, char** argv) {
         if (k == SDLK_ESCAPE) running = false;
 
         if (k == SDLK_r) {
+          if (!won) post_mission_summary("aborted", "player regenerated");
           regenerate(&px, &py, win);
           robot_heading = ROBOT_HEADING_NORTH;
           won = false;
@@ -778,6 +915,7 @@ int main(int argc, char** argv) {
           if (mdx != 0 || mdy != 0) moved = try_move(&px, &py, mdx, mdy);
 
           if (moved) {
+            update_move_counters(mdx, mdy);
             g_move_sequence++;
             bool goal_reached = (px == MAZE_W - 1 && py == MAZE_H - 1);
             output_json_telemetry("keyboard", px, py, goal_reached);
@@ -785,6 +923,7 @@ int main(int argc, char** argv) {
 
             if (goal_reached) {
               won = true;
+              post_mission_summary("success", "");
               SDL_SetWindowTitle(win, "You win! Press R to regenerate, Esc to quit");
             }
           }
@@ -811,11 +950,15 @@ int main(int argc, char** argv) {
     SDL_RenderPresent(r);
   }
 
+  // Send final summary if user quit without winning
+  if (!won) post_mission_summary("aborted", "user exited");
+
   if (controller) SDL_GameControllerClose(controller);
   if (joystick) SDL_JoystickClose(joystick);
   SDL_DestroyRenderer(r);
   SDL_DestroyWindow(win);
   if (g_robot_url) shutdown_queue(&g_robot_queue);
+  if (g_mission_url) shutdown_queue(&g_mission_queue);
   shutdown_queue(&g_telemetry_queue);
   SDL_Quit();
   curl_global_cleanup();
