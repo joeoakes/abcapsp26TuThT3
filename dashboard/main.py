@@ -214,7 +214,7 @@ def get_moves(
         return JSONResponse({"ok": False, "error": str(e)}, 500)
 
 @app.get("/stats")
-def get_stats(limit: int = Query(500, ge=1, le=5000)):
+def get_stats(limit: int = Query(5000, ge=1, le=10000)):
     """Compute aggregate stats from the most recent telemetry events."""
     if not mongo_ok:
         return JSONResponse({"ok": False, "error": "MongoDB not connected"}, 500)
@@ -324,7 +324,7 @@ async def websocket_endpoint(ws: WebSocket):
     # Send current stats immediately on connect
     try:
         if mongo_ok:
-            cursor = col.find().sort("_id", DESCENDING).limit(500)
+            cursor = col.find().sort("_id", DESCENDING).limit(5000)
             docs = list(cursor)
             stats = compute_stats(docs)
             recent = [doc_to_json(d) for d in col.find().sort("_id", DESCENDING).limit(5)]
