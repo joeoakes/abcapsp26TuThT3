@@ -450,11 +450,26 @@ async function pollRobot(){
   catch(e){setChip("chipRobot","Offline","warn")}
 }
 
+async function loadMissionStats(){
+  try{
+    const r=await fetch(`${API_BASE}/mission_stats`);
+    const d=await r.json();
+    if(d.ok && d.totals){
+      updateActionChart(d.totals);
+      const top=Object.entries(d.totals).sort((a,b)=>b[1]-a[1])[0]?.[0];
+      const map={forward:"Forward",backward:"Backward",turn_left:"Left",turn_right:"Right"};
+      if(top)setText("lastDir",map[top]||top);
+    }
+  }catch(e){console.warn("mission stats:",e)}
+}
+  
 (async function init(){
   initCharts();
   await checkHealth();await loadStats();await loadMoves();
+  await loadMissionStats();
   connectWs();
   setInterval(async()=>{if(!ws||ws.readyState!==WebSocket.OPEN)await loadStats();await checkHealth();updateAge()},10000);
+  setInterval(loadMissionStats,15000);
   setInterval(pollRobot,15000);pollRobot();
 })();
 </script>
