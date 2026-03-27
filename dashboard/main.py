@@ -65,6 +65,32 @@ def connect_mongo():
 
 connect_mongo()
 
+# ── Redis ─────────────────────────────────────────────────────────────────────
+import redis as redis_lib
+
+REDIS_HOST   = os.getenv("REDIS_HOST",       "localhost")
+REDIS_PORT   = int(os.getenv("REDIS_PORT",   "6379"))
+REDIS_PREFIX = os.getenv("REDIS_KEY_PREFIX", "team3ttmission")
+
+redis_client = None
+redis_ok     = False
+
+def connect_redis():
+    global redis_client, redis_ok
+    try:
+        redis_client = redis_lib.Redis(
+            host=REDIS_HOST, port=REDIS_PORT,
+            decode_responses=True, socket_timeout=3
+        )
+        redis_client.ping()
+        redis_ok = True
+        print(f"[redis] Connected to Redis: {REDIS_HOST}:{REDIS_PORT}")
+    except Exception as e:
+        redis_ok = False
+        print(f"[redis] Redis connection failed: {e}")
+
+connect_redis()
+
 # ── WebSocket Manager ────────────────────────────────────────────────────────
 class ConnectionManager:
     def __init__(self):
@@ -211,6 +237,31 @@ def get_sessions():
         sessions = col.distinct("session_id")
         sessions = [s for s in sessions if s]
         return {"ok": True, "sessions": sessions, "count": len(sessions)}
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, 500)
+
+@app.get("/mission_stats")
+def get_mission_stats():
+    """Read mission summaries from Redis for action distribution."""
+    if not redis_ok:
+        return JSONResponse({"ok": False, "error": "Redis not connected"}, 500)
+    try:
+        keys = redis_client.keys(f"{REDIS_PREFIX}:*")
+        if not keys:
+            return {"ok": True, "missions": [], "totals": {"forward": 0, "backward": 0, "turn_left": 0, "turn_right": 0}}
+
+        totals = {"forward": 0, "backward": 0, "turn_left": 0, "turn_right": 0}
+        missions = []
+        for key in keys[-10:]:
+            data = redis_client.hgetall(key)
+            if data:
+                totals["forward"]    += int(data.get("moves_straight", 0))
+                totals["backward"]   += int(data.get("moves_reverse", 0))
+                totals["turn_left"]  += int(data.get("moves_left_turn", 0))
+                totals["turn_right"] += int(data.get("moves_right_turn", 0))
+                missions.append(data)
+
+        return {"ok": True, "missions": missions, "totals": totals}
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, 500)
 
