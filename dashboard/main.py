@@ -132,14 +132,17 @@ def doc_to_json(doc: dict) -> dict:
     return out
 
 def compute_stats(docs: list) -> dict:
-    """Compute summary stats from a list of move documents."""
+    """Compute summary stats from a list of move documents (newest-first)."""
     total     = len(docs)
     goal_hits = sum(1 for d in docs if d.get("goal_reached"))
     actions   = {}
     devices   = set()
     last_pos  = {"x": 0, "y": 0}
+    prev_pos  = None
     last_ts   = None
     sessions  = set()
+    last_direction = "\u2014"
+    positions_found = 0
 
     for d in docs:
         action = d.get("action", d.get("event_type", "unknown"))
@@ -149,30 +152,45 @@ def compute_stats(docs: list) -> dict:
             devices.add(inp["device"])
         pos = (d.get("player") or {}).get("position")
         if isinstance(pos, dict):
-            last_pos = pos
+            if positions_found == 0:
+                last_pos = pos
+            elif positions_found == 1:
+                prev_pos = pos
+            positions_found += 1
         ts = d.get("timestamp") or d.get("received_at")
-        if ts:
+        if ts and last_ts is None:
             last_ts = ts
         sid = d.get("session_id")
         if sid:
             sessions.add(sid)
 
+    # Compute direction from the two most recent positions
+    if prev_pos is not None:
+        dx = last_pos.get("x", 0) - prev_pos.get("x", 0)
+        dy = last_pos.get("y", 0) - prev_pos.get("y", 0)
+        if dx > 0:   last_direction = "East"
+        elif dx < 0: last_direction = "West"
+        elif dy > 0: last_direction = "South"
+        elif dy < 0: last_direction = "North"
+        else:        last_direction = "Stationary"
+
     success_rate = round((goal_hits / total * 100) if total else 0, 1)
 
     return {
-        "total_events":  total,
-        "goal_reached":  goal_hits,
-        "success_rate":  success_rate,
-        "actions":       actions,
-        "devices":       list(devices),
-        "last_position": last_pos,
-        "last_event_ts": last_ts,
-        "sessions":      len(sessions),
-        "forward":       actions.get("forward",    0),
-        "backward":      actions.get("backward",   0),
-        "turn_left":     actions.get("turn_left",  0),
-        "turn_right":    actions.get("turn_right", 0),
-        "stop":          actions.get("stop",       0),
+        "total_events":   total,
+        "goal_reached":   goal_hits,
+        "success_rate":   success_rate,
+        "actions":        actions,
+        "devices":        list(devices),
+        "last_position":  last_pos,
+        "last_event_ts":  last_ts,
+        "sessions":       len(sessions),
+        "last_direction": last_direction,
+        "forward":        actions.get("forward",    0),
+        "backward":       actions.get("backward",   0),
+        "turn_left":      actions.get("turn_left",  0),
+        "turn_right":     actions.get("turn_right", 0),
+        "stop":           actions.get("stop",       0),
     }
 
 # ── REST Endpoints ────────────────────────────────────────────────────────────
@@ -275,7 +293,7 @@ def ai_diagnostics(query: str = Query("Summarize recent mission performance")):
     if not mongo_ok:
         return JSONResponse({"ok": False, "error": "MongoDB not connected"}, 500)
     try:
-        cursor = col.find().sort("_id", DESCENDING).limit(200)
+        cursor = col.find().sort("_id", DESCENDING).limit(5000)
         docs = list(cursor)
         stats = compute_stats(docs)
 
@@ -375,7 +393,7 @@ async def mongo_poller():
                 json_docs = [doc_to_json(d) for d in new_docs]
 
                 # Recompute stats
-                cursor = col.find().sort("_id", DESCENDING).limit(500)
+                cursor = col.find().sort("_id", DESCENDING).limit(5000)
                 all_docs = list(cursor)
                 stats = compute_stats(all_docs)
 

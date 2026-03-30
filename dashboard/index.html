@@ -317,9 +317,7 @@ function applyStats(s){
   setText("posXY",`(${x}, ${y})`);
   if(total>0){setText("missionStatus","Active");setText("missionMode","Autonomous assist");if(!missionStart){missionStart=new Date();startTimer()}}
   if(s.last_event_ts){lastEventTs=new Date(s.last_event_ts);setText("statLastTs",lastEventTs.toLocaleTimeString());updateAge()}
-  const am=s.actions??{}, map={forward:"Forward",backward:"Backward",turn_left:"Left",turn_right:"Right",stop:"Stop"};
-  const top=Object.entries(am).sort((a,b)=>b[1]-a[1])[0]?.[0];
-  if(top)setText("lastDir",map[top]||top);
+  if(s.last_direction)setText("lastDir",s.last_direction);
   updateActionChart(s);
   drawMaze();
 }
@@ -398,12 +396,25 @@ function drawMaze(){
   if(!trail.length){ctx.fillStyle="rgba(0,229,255,.15)";ctx.font="12px 'Share Tech Mono'";ctx.textAlign="center";ctx.fillText("Maze Map View — Awaiting telemetry",W/2,H/2);return}
   const xs=trail.map(p=>p.x),ys=trail.map(p=>p.y);
   const minX=Math.min(...xs),maxX=Math.max(...xs)||1,minY=Math.min(...ys),maxY=Math.max(...ys)||1;
-  const pad=24,sx=(W-pad*2)/(maxX-minX||1),sy=(H-pad*2)/(maxY-minY||1);
-  const tx=p=>pad+(p.x-minX)*sx, ty=p=>H-pad-(p.y-minY)*sy;
+  const pad=24,rangeX=maxX-minX||1,rangeY=maxY-minY||1;
+  const scale=Math.min((W-pad*2)/rangeX,(H-pad*2)/rangeY);
+  const offX=(W-rangeX*scale)/2, offY=(H-rangeY*scale)/2;
+  const tx=p=>offX+(p.x-minX)*scale, ty=p=>offY+(p.y-minY)*scale;
   ctx.beginPath();ctx.strokeStyle="rgba(0,229,255,.35)";ctx.lineWidth=1.5;
   trail.forEach((p,i)=>i===0?ctx.moveTo(tx(p),ty(p)):ctx.lineTo(tx(p),ty(p)));ctx.stroke();
   trail.forEach((p,i)=>{ctx.beginPath();ctx.arc(tx(p),ty(p),i===trail.length-1?5:2,0,Math.PI*2);ctx.fillStyle=i===trail.length-1?"#00e5ff":"rgba(0,229,255,.25)";ctx.fill()});
   const last=trail[trail.length-1];ctx.beginPath();ctx.arc(tx(last),ty(last),9,0,Math.PI*2);ctx.strokeStyle="rgba(0,229,255,.4)";ctx.lineWidth=1;ctx.stroke();
+  // Axis labels and coordinate markers
+  ctx.font="10px 'Share Tech Mono'";ctx.fillStyle="rgba(0,229,255,.5)";
+  ctx.textAlign="center";ctx.fillText("X →",W/2,H-3);
+  ctx.save();ctx.translate(8,H/2);ctx.rotate(-Math.PI/2);ctx.fillText("Y ↓",0,0);ctx.restore();
+  // Show min/max coordinates at corners
+  ctx.fillStyle="rgba(74,106,132,.6)";ctx.font="9px 'Share Tech Mono'";
+  ctx.textAlign="left";ctx.fillText(`(${minX},${minY})`,tx({x:minX})-8,ty({y:minY})-8);
+  ctx.textAlign="right";ctx.fillText(`(${maxX},${maxY})`,tx({x:maxX})+8,ty({y:maxY})+14);
+  // Label current position
+  ctx.fillStyle="#00e5ff";ctx.textAlign="left";ctx.font="10px 'Share Tech Mono'";
+  ctx.fillText(`(${last.x},${last.y})`,tx(last)+12,ty(last)+4);
 }
 
 async function loadMoves(){
@@ -456,9 +467,6 @@ async function loadMissionStats(){
     const d=await r.json();
     if(d.ok && d.totals){
       updateActionChart(d.totals);
-      const top=Object.entries(d.totals).sort((a,b)=>b[1]-a[1])[0]?.[0];
-      const map={forward:"Forward",backward:"Backward",turn_left:"Left",turn_right:"Right"};
-      if(top)setText("lastDir",map[top]||top);
     }
   }catch(e){console.warn("mission stats:",e)}
 }
