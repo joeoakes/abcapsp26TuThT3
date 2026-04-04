@@ -350,6 +350,7 @@ function prependLog(docs,isNew=false){
     if(doc.session_id && doc.session_id!==currentSessionId){
       currentSessionId=doc.session_id;
       currentSessionMoves=[];
+      allPositions=[];
       const el=document.getElementById("goalReached");
       if(el){el.textContent="No";el.className="m-val"}
     }
