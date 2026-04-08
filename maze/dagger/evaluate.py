@@ -33,6 +33,8 @@ def parse_args():
     p.add_argument("--seed-offset", type=int, default=1_000_000, help="Seed offset so test mazes don't overlap with training")
     p.add_argument("--render", action="store_true", help="Print ASCII maze for first few episodes")
     p.add_argument("--render-count", type=int, default=3)
+    p.add_argument("--epsilon", type=float, default=0.0,
+                   help="Exploration rate for epsilon-greedy eval (0.0 = fully greedy)")
     return p.parse_args()
 
 
@@ -54,11 +56,12 @@ def evaluate(args):
         device=device,
     )
     agent.load(args.model)
-    agent.epsilon = 0.0  # Fully greedy at eval (TODO: allow epsilon parameter and test, since this may increase success rate)
+    agent.epsilon = args.epsilon
     print(f"Loaded model from {args.model}")
     print(f"  Device: {device}")
     print(f"  Episodes trained: {agent.episodes_done}")
     print(f"  Train steps: {agent.train_steps}")
+    print(f"  Eval epsilon: {agent.epsilon:.4f}")
     print()
 
     start_time = time.perf_counter()
@@ -75,7 +78,7 @@ def evaluate(args):
         trajectory = [(env.agent_x, env.agent_y)]
 
         while not done:
-            action = agent.select_action(obs, greedy=True)
+            action = agent.select_action(obs, greedy=(agent.epsilon == 0.0))
             obs, done, info = env.step(action)
             trajectory.append((env.agent_x, env.agent_y))
 
@@ -122,6 +125,7 @@ def evaluate(args):
     print("=" * 60)
     print(f"EVALUATION RESULTS ({args.num_mazes} test mazes)")
     print("=" * 60)
+    print(f"  Epsilon:             {args.epsilon}")
     print(f"  Success rate:        {succ_rate:.1f}%")
     print(f"  Avg path length:     {avg_len:.1f}")
     print(f"  Avg path efficiency (successes only): {avg_eff:.2f}x optimal")
