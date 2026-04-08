@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=IBM+Plex+Sans:wght@300;400;600&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
 <style>
-  :root {
+:root {
     --bg:        #030b14;
     --panel:     #071525;
     --border:    #0d3a5c;
@@ -24,6 +24,20 @@
     --font-head: 'Orbitron', monospace;
     --font-mono: 'Share Tech Mono', monospace;
     --font-body: 'IBM Plex Sans', sans-serif;
+  }
+  :root.light {
+    --bg:        #f0f4f8;
+    --panel:     #ffffff;
+    --border:    #b0c8e0;
+    --accent:    #0077aa;
+    --accent2:   #cc4400;
+    --green:     #007a3d;
+    --red:       #cc1133;
+    --yellow:    #996600;
+    --text:      #1a2e3f;
+    --dim:       #5a7a94;
+    --glow:      0 0 12px rgba(0,119,170,0.2);
+    --glow2:     0 0 12px rgba(204,68,0,0.2);
   }
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-height:100vh;overflow-x:hidden}
@@ -164,7 +178,8 @@
     <div class="sub-title">Telemetry → HTTPS (8445) → Mini-Pupper → Logging / AI</div>
   </div>
   <div class="header-right">
-    <div class="clock" id="clock">--:--:--</div>
+     <div class="clock" id="clock">--:--:--</div>
+    <button class="theme-btn" id="themeToggle" onclick="toggleTheme()">☀ LIGHT</button>
     <div class="conn-badge" id="connBadge">
       <div class="conn-dot"></div>
       <span id="connText">Connecting...</span>
@@ -273,6 +288,20 @@
 </div>
 
 <script>
+  function toggleTheme(){
+  const root = document.documentElement;
+  const btn = document.getElementById('themeToggle');
+  if(root.classList.contains('light')){
+    root.classList.remove('light');
+    btn.textContent = '☀ LIGHT';
+    localStorage.setItem('theme','dark');
+  } else {
+    root.classList.add('light');
+    btn.textContent = '☾ DARK';
+    localStorage.setItem('theme','light');
+  }
+}
+(function(){if(localStorage.getItem('theme')==='light'){document.documentElement.classList.add('light');const b=document.getElementById('themeToggle');if(b)b.textContent='☾ DARK';}})();
 const HOST = window.location.hostname || "localhost";
 const API_BASE = `http://${HOST}:8000`;
 const WS_URL   = `ws://${HOST}:8000/ws`;
