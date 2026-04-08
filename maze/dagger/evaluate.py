@@ -33,8 +33,7 @@ def parse_args():
     p.add_argument("--seed-offset", type=int, default=1_000_000, help="Seed offset so test mazes don't overlap with training")
     p.add_argument("--render", action="store_true", help="Print ASCII maze for first few episodes")
     p.add_argument("--render-count", type=int, default=3)
-    p.add_argument("--epsilon", type=float, default=0.0,
-                   help="Exploration rate for epsilon-greedy eval (0.0 = fully greedy)")
+    p.add_argument("--epsilon", type=float, default=0.0, help="Exploration rate for epsilon-greedy eval (0.0 = fully greedy)")
     return p.parse_args()
 
 
