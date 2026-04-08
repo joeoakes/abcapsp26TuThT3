@@ -2,9 +2,18 @@
 http/maze_http_mongo
 https/maze_https_mongo
 maze/maze_sdl2
+maze/libmaze.so
 
 # Object files
 *.o
 
 # TLS certificates and private keys
 certs/
+
+# Checkpoints
+*.pt
+
+# Python
+*.pyc
+.venv/
+venv/
