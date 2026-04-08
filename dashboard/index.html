@@ -40,7 +40,7 @@
     --glow2:     0 0 12px rgba(204,68,0,0.2);
   }
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-height:100vh;overflow-x:hidden}
+  body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-height:100vh;overflow-x:hidden;transition:background .3s,color .3s}
   body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;
     background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.025) 2px,rgba(0,0,0,0.025) 4px)}
   body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9998;opacity:0.03;
@@ -48,7 +48,8 @@
 
   header{display:flex;align-items:center;justify-content:space-between;padding:14px 28px;
     border-bottom:1px solid var(--border);
-    background:linear-gradient(90deg,#030b14 0%,#071d30 50%,#030b14 100%);
+         background:var(--panel);
+         transition:background .3s;
     position:sticky;top:0;z-index:100}
   .header-left{display:flex;flex-direction:column;gap:3px}
   .logo{font-family:var(--font-head);font-size:1.05rem;font-weight:900;letter-spacing:3px;
@@ -87,6 +88,10 @@
   .mc.amber-c {background:linear-gradient(135deg,#1f1407,#071525);border-color:#5c3a0d}
   .mc.blue-c  {background:linear-gradient(135deg,#071525,#0a1e35);border-color:#0d3a5c}
   .mc.purple-c{background:linear-gradient(135deg,#100718,#071525);border-color:#2d1040}
+    :root.light .mc.green-c {background:#edfff5;border-color:#7ecfa8}
+    :root.light .mc.amber-c {background:#fff8ed;border-color:#d4a04a}
+    :root.light .mc.blue-c  {background:#edf4ff;border-color:#7ab0d4}
+    :root.light .mc.purple-c{background:#f3edff;border-color:#a882d4}
   .mc-label{font-family:var(--font-mono);font-size:.57rem;letter-spacing:2px;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
   .mc-val{font-family:var(--font-head);font-size:1.75rem;font-weight:900;line-height:1;transition:all .3s}
   .mc-val.green {color:var(--green);text-shadow:0 0 20px rgba(0,255,136,.4)}
