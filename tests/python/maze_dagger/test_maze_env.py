@@ -76,11 +76,13 @@ def fake_local_env(monkeypatch):
         env.close()
 
 
+# B2-23
 def test_constructor_rejects_invalid_observation_mode():
     with pytest.raises(ValueError):
         maze_env.MazeEnv(observation_mode="invalid")
 
 
+# B2-24
 def test_global_reset_initializes_expected_state(fake_env):
     assert fake_env.observation_space_shape == (7, 3, 3)
     assert fake_env.action_space_n == 4
@@ -93,6 +95,7 @@ def test_global_reset_initializes_expected_state(fake_env):
     assert fake_env.optimal_path_length() == 4
 
 
+# B2-25
 def test_global_observation_contains_agent_visited_and_goal_channels(fake_env):
     obs = fake_env.reset()
 
@@ -105,6 +108,7 @@ def test_global_observation_contains_agent_visited_and_goal_channels(fake_env):
     assert obs[6].sum() == 1.0
 
 
+# B2-26
 def test_step_moves_agent_and_updates_visit_count(fake_env):
     obs, done, info = fake_env.step(maze_env.ACTION_E)
 
@@ -117,6 +121,7 @@ def test_step_moves_agent_and_updates_visit_count(fake_env):
     assert info == {"success": False, "steps": 1}
 
 
+# B2-27
 def test_blocked_step_keeps_position_but_increments_steps(fake_env):
     obs, done, info = fake_env.step(maze_env.ACTION_N)
 
@@ -129,6 +134,7 @@ def test_blocked_step_keeps_position_but_increments_steps(fake_env):
     assert info["steps"] == 1
 
 
+# B2-28
 def test_max_steps_ends_episode(fake_env):
     fake_env.step(maze_env.ACTION_N)
     fake_env.step(maze_env.ACTION_N)
@@ -138,6 +144,7 @@ def test_max_steps_ends_episode(fake_env):
     assert info == {"success": False, "steps": 3}
 
 
+# B2-29
 def test_optimal_action_follows_shortest_path(fake_env):
     assert fake_env.optimal_action() == maze_env.ACTION_E
 
@@ -148,6 +155,7 @@ def test_optimal_action_follows_shortest_path(fake_env):
     assert fake_env.optimal_action() == maze_env.ACTION_S
 
 
+# B2-30
 def test_optimal_action_is_none_at_goal(fake_env):
     fake_env.agent_x = fake_env.goal_x
     fake_env.agent_y = fake_env.goal_y
@@ -155,6 +163,7 @@ def test_optimal_action_is_none_at_goal(fake_env):
     assert fake_env.optimal_action() is None
 
 
+# B2-31
 def test_local_observation_shape_and_boundary_walls(fake_local_env):
     obs = fake_local_env.reset()
 
@@ -169,6 +178,7 @@ def test_local_observation_shape_and_boundary_walls(fake_local_env):
     assert visit_patch.sum() == 1.0
 
 
+# B2-32
 def test_local_goal_features_are_normalized(fake_local_env):
     obs = fake_local_env.reset()
     goal_dx, goal_dy, goal_dist = obs[-3:]
@@ -178,6 +188,7 @@ def test_local_goal_features_are_normalized(fake_local_env):
     assert goal_dist == pytest.approx(np.sqrt((2 / 3) ** 2 + (2 / 3) ** 2))
 
 
+# B2-33
 def test_render_ascii_includes_agent_goal_and_borders(fake_env):
     rendered = fake_env.render_ascii()
 
@@ -186,6 +197,7 @@ def test_render_ascii_includes_agent_goal_and_borders(fake_env):
     assert "+" in rendered
 
 
+# B2-34
 def test_close_releases_handle(fake_env):
     handle = fake_env._handle
 

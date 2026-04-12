@@ -1,0 +1,66 @@
+TestID	Test Name	Test Type	Priority	Description	Expected Output
+B2-01	maze_create rejects invalid dimensions	unit	high	maze_create returns NULL for width/height < 2 or > MAZE_MAX	NULL returned for all four invalid dimension cases
+B2-02	maze_create returns dimensions for valid input	unit	high	Valid maze creation; width/height getters match inputs	maze_width==6, maze_height==4, non-NULL pointer
+B2-03	maze_free accepts NULL	unit	medium	Calling maze_free(NULL) does not crash	No crash or assertion failure
+B2-04	maze_get_walls returns full mask out of bounds	unit	medium	Out-of-bounds x/y returns 0x0F wall mask	0x0F returned for all four OOB coordinates
+B2-05	same seed produces identical wall grid	unit	high	Two mazes with same seed and dims have identical wall grids	All wall bytes are equal
+B2-06	wall masks and shared walls are consistent	unit	high	Adjacent cells share wall bits symmetrically (E/W and N/S pairs)	All neighbor wall consistency checks pass
+B2-07	maze_can_move matches wall bitmasks	unit	high	can_move result agrees with wall bitmask for every cell and direction	All directional movement checks pass
+B2-08	distance map rejects invalid inputs	unit	medium	NULL maze, OOB goal coords, and NULL output buffer each return -1	All invalid calls return -1
+B2-09	distance map marks goal zero and all cells reachable	unit	high	Goal cell distance == 0; all other cells have non-negative distance	dist[goal]==0, all cells >= 0
+B2-10	distance map neighbor distances are locally consistent	unit	high	Each reachable neighbor differs by at most 1; descent path to goal exists	Gradient consistency holds for entire grid
+B2-11	astar path is legal and matches distance map length	unit	high	A* path length equals BFS distance; every step is a valid maze move	path_len==dist[0,0], all steps pass can_move
+B2-12	astar rejects invalid inputs and start equals goal	unit	medium	NULL maze/buffers, OOB coords, and start==goal each return 0	All invalid calls return 0
+B2-13	maze_bridge import raises when library missing	unit	high	FileNotFoundError raised if compiled .so is absent	FileNotFoundError raised on module load
+B2-14	MazeHandle init raises when create fails	unit	high	RuntimeError raised when maze_create returns NULL	RuntimeError raised
+B2-15	MazeHandle close is idempotent	unit	medium	Calling close() twice frees once and sets _ptr to None	free called once, _ptr is None
+B2-16	MazeHandle context manager closes pointer	unit	medium	with-block calls close(); _ptr is None after exit	free called, _ptr is None after block
+B2-17	get_wall_grid returns expected shape dtype and content	unit	high	Wall grid array matches fake lib data exactly	shape==(2,3), dtype==uint8, values correct
+B2-18	can_move returns boolean value	unit	high	can_move returns Python bool matching fake lib logic	True for passable direction, False for blocked
+B2-19	compute_distance_map returns expected shape dtype and content	unit	high	Distance map matches fake lib output exactly	shape==(2,3), dtype==int32, values correct
+B2-20	astar returns list of coordinate tuples	unit	high	A* path returned as list of (x,y) int tuples	[(1,0),(2,0),(2,1)]
+B2-21	generate_training_instance uses default goal	unit	medium	Default goal is bottom-right corner (width-1, height-1)	distance_calls[-1]==(2,1)
+B2-22	generate_training_instance uses explicit goal	unit	medium	Explicit goal_x/goal_y overrides default bottom-right	distance_calls[-1]==(1,0)
+B2-23	MazeEnv rejects invalid observation mode	unit	high	ValueError raised for unrecognized observation_mode string	ValueError raised
+B2-24	global reset initializes expected state	unit	high	Agent at (0,0), goal at corner, steps==0, visit count correct	All state fields match expected values
+B2-25	global observation channels are correct	unit	high	Reset obs has correct agent/visited/goal channel values and dtype	obs shape==(7,3,3), channels correct
+B2-26	step moves agent and updates visit count	unit	high	ACTION_E advances agent_x by 1, steps incremented, done==False	agent_x==1, steps==1, done==False
+B2-27	blocked step keeps position but increments steps	unit	medium	Moving into a wall keeps agent position; steps still incremented	agent stays at (0,0), steps==1
+B2-28	max steps ends episode	unit	high	Episode terminates with done==True after max_steps exhausted	done==True, success==False, steps==3
+B2-29	optimal action follows shortest path	unit	high	optimal_action returns action toward lowest-distance neighbor	Correct action returned at each BFS step
+B2-30	optimal action is None at goal	unit	medium	optimal_action returns None when agent is at the goal cell	None returned
+B2-31	local observation shape and boundary walls	unit	high	Local mode obs vector has correct length and encodes boundary walls as 1.0	shape==(48,), boundary walls all 1.0
+B2-32	local goal features are normalized	unit	medium	Goal dx/dy/dist appended to obs are normalized correctly	Approx correct normalized float values
+B2-33	render_ascii includes agent goal and borders	unit	low	ASCII render contains 'A', 'G', and '+' characters	All three marker strings present
+B2-34	close releases handle	unit	medium	close() marks handle closed and sets _handle to None	handle.closed==True, _handle is None
+B2-35	PolicyNetwork vector input produces correct logits shape	unit	high	Batch of vector obs through PolicyNetwork produces correct output shape	logits.shape==(3,4)
+B2-36	PolicyNetwork spatial input produces correct logits shape	unit	high	Batch of spatial obs through PolicyNetwork produces correct output shape	logits.shape==(2,4)
+B2-37	PolicyNetwork accepts unbatched vector input	unit	medium	Single unbatched tensor auto-batched; output shape is (1,n_actions)	logits.shape==(1,3)
+B2-38	PolicyNetwork rejects invalid observation shape	unit	medium	2-D obs shape raises ValueError on construction	ValueError raised
+B2-39	ExpertBuffer push sample and length	unit	high	Push two items; sample returns correct shapes, dtypes, and values	Sampled data matches pushed states and actions
+B2-40	ExpertBuffer respects capacity	unit	medium	Pushing beyond capacity evicts the oldest entry	len==2, oldest entry gone
+B2-41	DAggerAgent normalizes integer obs_shape	unit	medium	Integer obs_shape converted to a single-element tuple	agent.obs_shape==(6,)
+B2-42	select_action greedy uses policy prediction	unit	high	Greedy mode picks argmax of mocked network logits	action==1
+B2-43	select_action uses exploration below epsilon	unit	high	epsilon > random() triggers random action via randrange	action==3 (mocked randrange result)
+B2-44	store_expert_label appends to buffer	unit	high	Expert label stored in buffer with correct action value	buffer length 1, action==2
+B2-45	train_step returns None when buffer too small	unit	medium	train_step returns None when buffer has fewer items than batch_size	None returned, train_steps==0
+B2-46	train_step returns loss and increments counter	unit	high	train_step on sufficient buffer returns float loss >= 0 and increments counter	float loss returned, train_steps==1
+B2-47	end_episode decays epsilon but not below minimum	unit	medium	Epsilon multiplied by decay each episode; clamped at epsilon_end	Correct values after 3 episodes, episodes_done==3
+B2-48	save and load round trip	unit	high	Saved agent reloaded with identical network weights and metadata	All params equal, epsilon/episodes_done/train_steps match
+B2-49	build_tls_context configures mTLS	unit	high	TLS context loaded with correct cert chain, CA file, and verify mode	cert_chain, verify_locations, verify_mode all match inputs
+B2-50	publish_twist noops without publisher	unit	medium	_publish_twist does nothing when _cmd_pub is None	No error raised, _cmd_pub still None
+B2-51	publish_twist sends expected message	unit	high	_publish_twist calls publisher.publish with correct Twist values	messages==[(1.25,-0.75)]
+B2-52	stop publishes zero velocity	unit	high	_stop() sends a (0.0, 0.0) Twist via _publish_twist	recorded==[(0.0,0.0)]
+B2-53	execute_action ignores unknown action	unit	medium	Unrecognized action string causes no publish and no state change	No publish calls, _last_action unchanged
+B2-54	execute_action forward publishes motion then stop	unit	high	forward enqueues SPEED pulses then a stop with correct linear_x values	Correct publish sequence ending with (0.0,0.0)
+B2-55	execute_action turn uses turn duration formula	unit	high	turn_left duration == radians(90)/TURN_SPEED; correct angular_z pulse count	Correct number of angular pulses and final stop
+B2-56	execute_action waits before forward after turn	unit	medium	TURN_MOVE_DELAY sleep inserted when previous action was a turn	First sleep==TURN_MOVE_DELAY, then motion pulses
+B2-57	execute_action stop publishes zero once	unit	medium	stop action sends exactly one (0.0, 0.0) publish	recorded==[(0.0,0.0)], _last_action=='stop'
+B2-58	do_POST rejects non-robot path	unit	high	Request to unknown URL path returns 404 Not Found	errors==[(404,'Not Found')]
+B2-59	do_POST rejects empty body	unit	high	Empty request body returns 400 Empty body	errors==[(400,'Empty body')]
+B2-60	do_POST rejects invalid JSON	unit	high	Malformed JSON body returns 400 Invalid JSON	errors==[(400,'Invalid JSON')]
+B2-61	do_POST rejects missing action field	unit	high	JSON without 'action' key returns 400	errors==[(400,"Missing 'action' field")]
+B2-62	do_POST starts background action and returns JSON	unit	high	Valid request starts daemon thread and returns 200 with JSON body	Thread started, 200 response, body=='{"status":"ok"}\n'
+B2-63	bridge generates expected shapes and path length	smoke	high	Real C lib: generate_training_instance returns correct array shapes and consistent path length	walls/dist shapes correct, dist[0,0]==len(path)
+B2-64	maze_env smoke run	smoke	high	Real C lib: MazeEnv runs 10 random steps without error	Obs shapes valid, steps increment, agent stays in bounds
+B2-65	dagger agent can collect labels and train	smoke	high	Real C lib + torch: DAggerAgent collects 100 expert labels and produces float loss >= 0	loss is float >= 0.0

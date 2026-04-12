@@ -13,6 +13,7 @@ def _import_dagger_module(module_name: str):
         pytest.skip(str(exc))
 
 
+# B2-63
 def test_bridge_generates_expected_shapes_and_path_length():
     maze_bridge = _import_dagger_module("dagger.maze_bridge")
     handle, walls, dist = maze_bridge.generate_training_instance(21, 15, seed=42)
@@ -28,6 +29,7 @@ def test_bridge_generates_expected_shapes_and_path_length():
         handle.close()
 
 
+# B2-64
 def test_maze_env_smoke_run():
     maze_env = _import_dagger_module("dagger.maze_env")
     env = maze_env.MazeEnv(width=21, height=15, seed=42)
@@ -52,6 +54,7 @@ def test_maze_env_smoke_run():
         env.close()
 
 
+# B2-65
 def test_dagger_agent_can_collect_labels_and_train():
     pytest.importorskip("torch")
     maze_env = _import_dagger_module("dagger.maze_env")

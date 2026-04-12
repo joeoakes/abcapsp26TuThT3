@@ -15,6 +15,7 @@ def deterministic_seeds():
     torch.manual_seed(1234)
 
 
+# B2-35
 def test_policy_network_vector_input_produces_expected_logits_shape():
     network = dagger_agent.PolicyNetwork((6,), n_actions=4, hidden=32)
     batch = torch.zeros(3, 6)
@@ -24,6 +25,7 @@ def test_policy_network_vector_input_produces_expected_logits_shape():
     assert logits.shape == (3, 4)
 
 
+# B2-36
 def test_policy_network_spatial_input_produces_expected_logits_shape():
     network = dagger_agent.PolicyNetwork((7, 3, 3), n_actions=4, hidden=32)
     batch = torch.zeros(2, 7, 3, 3)
@@ -33,6 +35,7 @@ def test_policy_network_spatial_input_produces_expected_logits_shape():
     assert logits.shape == (2, 4)
 
 
+# B2-37
 def test_policy_network_accepts_unbatched_vector_input():
     network = dagger_agent.PolicyNetwork((5,), n_actions=3, hidden=16)
     state = torch.zeros(5)
@@ -42,11 +45,13 @@ def test_policy_network_accepts_unbatched_vector_input():
     assert logits.shape == (1, 3)
 
 
+# B2-38
 def test_policy_network_rejects_invalid_observation_shape():
     with pytest.raises(ValueError):
         dagger_agent.PolicyNetwork((2, 2), n_actions=4)
 
 
+# B2-39
 def test_expert_buffer_push_sample_and_length(monkeypatch):
     buffer = dagger_agent.ExpertBuffer(capacity=3)
     states = [
@@ -68,6 +73,7 @@ def test_expert_buffer_push_sample_and_length(monkeypatch):
     assert np.array_equal(sampled_actions, np.array([1, 2], dtype=np.int64))
 
 
+# B2-40
 def test_expert_buffer_respects_capacity():
     buffer = dagger_agent.ExpertBuffer(capacity=2)
     buffer.push(np.array([1.0], dtype=np.float32), 0)
@@ -78,12 +84,14 @@ def test_expert_buffer_respects_capacity():
     assert [sample.action for sample in buffer.buffer] == [1, 2]
 
 
+# B2-41
 def test_dagger_agent_normalizes_integer_obs_shape():
     agent = dagger_agent.DAggerAgent(obs_shape=6, n_actions=4, hidden=16)
 
     assert agent.obs_shape == (6,)
 
 
+# B2-42
 def test_select_action_greedy_uses_policy_prediction(monkeypatch):
     agent = dagger_agent.DAggerAgent(obs_shape=4, n_actions=3, hidden=16)
     monkeypatch.setattr(
@@ -97,6 +105,7 @@ def test_select_action_greedy_uses_policy_prediction(monkeypatch):
     assert action == 1
 
 
+# B2-43
 def test_select_action_uses_exploration_when_random_below_epsilon(monkeypatch):
     agent = dagger_agent.DAggerAgent(obs_shape=4, n_actions=4, hidden=16, epsilon_start=0.9)
     monkeypatch.setattr(dagger_agent.random, "random", lambda: 0.1)
@@ -107,6 +116,7 @@ def test_select_action_uses_exploration_when_random_below_epsilon(monkeypatch):
     assert action == 3
 
 
+# B2-44
 def test_store_expert_label_appends_to_buffer():
     agent = dagger_agent.DAggerAgent(obs_shape=4, n_actions=4, hidden=16)
 
@@ -116,6 +126,7 @@ def test_store_expert_label_appends_to_buffer():
     assert agent.expert_buffer.buffer[0].action == 2
 
 
+# B2-45
 def test_train_step_returns_none_when_buffer_too_small():
     agent = dagger_agent.DAggerAgent(obs_shape=4, n_actions=3, hidden=16, batch_size=4)
     agent.store_expert_label(np.zeros(4, dtype=np.float32), 0)
@@ -126,6 +137,7 @@ def test_train_step_returns_none_when_buffer_too_small():
     assert agent.train_steps == 0
 
 
+# B2-46
 def test_train_step_returns_loss_and_increments_counter(monkeypatch):
     agent = dagger_agent.DAggerAgent(obs_shape=4, n_actions=3, hidden=16, batch_size=2)
     agent.store_expert_label(np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32), 0)
@@ -139,6 +151,7 @@ def test_train_step_returns_loss_and_increments_counter(monkeypatch):
     assert agent.train_steps == 1
 
 
+# B2-47
 def test_end_episode_decays_epsilon_but_not_below_minimum():
     agent = dagger_agent.DAggerAgent(
         obs_shape=4,
@@ -160,6 +173,7 @@ def test_end_episode_decays_epsilon_but_not_below_minimum():
     assert agent.episodes_done == 3
 
 
+# B2-48
 def test_save_and_load_round_trip(tmp_path):
     source = dagger_agent.DAggerAgent(obs_shape=4, n_actions=3, hidden=16)
     source.epsilon = 0.37

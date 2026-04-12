@@ -111,6 +111,7 @@ def maze_bridge_module(monkeypatch):
         sys.modules.pop(module_name, None)
 
 
+# B2-13
 def test_import_raises_when_library_is_missing(monkeypatch):
     module_path = Path(__file__).resolve().parents[3] / "maze" / "dagger" / "maze_bridge.py"
     module_name = "maze_bridge_missing_lib_test"
@@ -125,6 +126,7 @@ def test_import_raises_when_library_is_missing(monkeypatch):
         sys.modules.pop(module_name, None)
 
 
+# B2-14
 def test_maze_handle_init_raises_when_create_fails(maze_bridge_module):
     module, fake_lib = maze_bridge_module
     fake_lib.fail_create = True
@@ -133,6 +135,7 @@ def test_maze_handle_init_raises_when_create_fails(maze_bridge_module):
         module.MazeHandle(3, 2, 99)
 
 
+# B2-15
 def test_maze_handle_close_is_idempotent(maze_bridge_module):
     module, fake_lib = maze_bridge_module
     handle = module.MazeHandle(3, 2, 42)
@@ -146,6 +149,7 @@ def test_maze_handle_close_is_idempotent(maze_bridge_module):
     assert handle._ptr is None
 
 
+# B2-16
 def test_maze_handle_context_manager_closes_pointer(maze_bridge_module):
     module, fake_lib = maze_bridge_module
 
@@ -157,6 +161,7 @@ def test_maze_handle_context_manager_closes_pointer(maze_bridge_module):
     assert handle._ptr is None
 
 
+# B2-17
 def test_get_wall_grid_returns_expected_shape_dtype_and_content(maze_bridge_module):
     module, _ = maze_bridge_module
     handle = module.MazeHandle(3, 2, 1)
@@ -171,6 +176,7 @@ def test_get_wall_grid_returns_expected_shape_dtype_and_content(maze_bridge_modu
     assert np.array_equal(walls, np.array([[1, 2, 3], [4, 5, 6]], dtype=np.uint8))
 
 
+# B2-18
 def test_can_move_returns_boolean_value(maze_bridge_module):
     module, fake_lib = maze_bridge_module
     handle = module.MazeHandle(3, 2, 1)
@@ -184,6 +190,7 @@ def test_can_move_returns_boolean_value(maze_bridge_module):
     assert fake_lib.can_move_calls == [(0, 0, 1, 0), (0, 0, 0, 1)]
 
 
+# B2-19
 def test_compute_distance_map_returns_expected_shape_dtype_and_content(maze_bridge_module):
     module, fake_lib = maze_bridge_module
     handle = module.MazeHandle(3, 2, 5)
@@ -199,6 +206,7 @@ def test_compute_distance_map_returns_expected_shape_dtype_and_content(maze_brid
     assert np.array_equal(dist, np.array([[7, 6, 5], [4, 3, 0]], dtype=np.int32))
 
 
+# B2-20
 def test_astar_returns_list_of_coordinate_tuples(maze_bridge_module):
     module, fake_lib = maze_bridge_module
     handle = module.MazeHandle(3, 2, 10)
@@ -212,6 +220,7 @@ def test_astar_returns_list_of_coordinate_tuples(maze_bridge_module):
     assert path == [(1, 0), (2, 0), (2, 1)]
 
 
+# B2-21
 def test_generate_training_instance_uses_default_goal_when_not_provided(maze_bridge_module):
     module, fake_lib = maze_bridge_module
 
@@ -225,6 +234,7 @@ def test_generate_training_instance_uses_default_goal_when_not_provided(maze_bri
         handle.close()
 
 
+# B2-22
 def test_generate_training_instance_uses_explicit_goal_when_provided(maze_bridge_module):
     module, fake_lib = maze_bridge_module
 

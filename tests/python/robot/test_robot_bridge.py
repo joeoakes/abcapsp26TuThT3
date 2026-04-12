@@ -98,6 +98,7 @@ def make_handler(module, path, body, monkeypatch):
     return handler
 
 
+# B2-49
 def test_build_tls_context_configures_mtls(robot_bridge_module, monkeypatch):
     fake_ctx = FakeSSLContext(robot_bridge_module.ssl.PROTOCOL_TLS_SERVER)
     monkeypatch.setattr(robot_bridge_module.ssl, "SSLContext", lambda protocol: fake_ctx)
@@ -115,6 +116,7 @@ def test_build_tls_context_configures_mtls(robot_bridge_module, monkeypatch):
     assert fake_ctx.verify_mode == robot_bridge_module.ssl.CERT_REQUIRED
 
 
+# B2-50
 def test_publish_twist_noops_without_publisher(robot_bridge_module):
     robot_bridge_module._cmd_pub = None
 
@@ -123,6 +125,7 @@ def test_publish_twist_noops_without_publisher(robot_bridge_module):
     assert robot_bridge_module._cmd_pub is None
 
 
+# B2-51
 def test_publish_twist_sends_expected_message(robot_bridge_module):
     publisher = RecordingPublisher()
     robot_bridge_module._cmd_pub = publisher
@@ -132,6 +135,7 @@ def test_publish_twist_sends_expected_message(robot_bridge_module):
     assert publisher.messages == [(1.25, -0.75)]
 
 
+# B2-52
 def test_stop_publishes_zero_velocity(robot_bridge_module, monkeypatch):
     recorded = []
     monkeypatch.setattr(robot_bridge_module, "_publish_twist", lambda linear_x, angular_z: recorded.append((linear_x, angular_z)))
@@ -141,6 +145,7 @@ def test_stop_publishes_zero_velocity(robot_bridge_module, monkeypatch):
     assert recorded == [(0.0, 0.0)]
 
 
+# B2-53
 def test_execute_action_ignores_unknown_action(robot_bridge_module, monkeypatch):
     recorded = []
     monkeypatch.setattr(robot_bridge_module, "_publish_twist", lambda linear_x, angular_z: recorded.append((linear_x, angular_z)))
@@ -152,6 +157,7 @@ def test_execute_action_ignores_unknown_action(robot_bridge_module, monkeypatch)
     assert robot_bridge_module._last_action == "stop"
 
 
+# B2-54
 def test_execute_action_forward_publishes_motion_then_stop(robot_bridge_module, monkeypatch):
     recorded = []
     sleep_calls = []
@@ -169,6 +175,7 @@ def test_execute_action_forward_publishes_motion_then_stop(robot_bridge_module, 
     assert robot_bridge_module._last_action == "forward"
 
 
+# B2-55
 def test_execute_action_turn_uses_turn_duration_formula(robot_bridge_module, monkeypatch):
     recorded = []
     sleep_calls = []
@@ -188,6 +195,7 @@ def test_execute_action_turn_uses_turn_duration_formula(robot_bridge_module, mon
     assert robot_bridge_module._last_action == "turn_left"
 
 
+# B2-56
 def test_execute_action_waits_before_forward_after_turn(robot_bridge_module, monkeypatch):
     recorded = []
     sleep_calls = []
@@ -207,6 +215,7 @@ def test_execute_action_waits_before_forward_after_turn(robot_bridge_module, mon
     assert robot_bridge_module._last_action == "forward"
 
 
+# B2-57
 def test_execute_action_stop_publishes_zero_once(robot_bridge_module, monkeypatch):
     recorded = []
     monkeypatch.setattr(robot_bridge_module, "_publish_twist", lambda linear_x, angular_z: recorded.append((linear_x, angular_z)))
@@ -218,6 +227,7 @@ def test_execute_action_stop_publishes_zero_once(robot_bridge_module, monkeypatc
     assert robot_bridge_module._last_action == "stop"
 
 
+# B2-58
 def test_do_post_rejects_non_robot_path(robot_bridge_module, monkeypatch):
     handler = make_handler(robot_bridge_module, "/bad", b"{}", monkeypatch)
 
@@ -226,6 +236,7 @@ def test_do_post_rejects_non_robot_path(robot_bridge_module, monkeypatch):
     assert handler.errors == [(404, "Not Found")]
 
 
+# B2-59
 def test_do_post_rejects_empty_body(robot_bridge_module, monkeypatch):
     handler = make_handler(robot_bridge_module, "/robot", b"", monkeypatch)
 
@@ -234,6 +245,7 @@ def test_do_post_rejects_empty_body(robot_bridge_module, monkeypatch):
     assert handler.errors == [(400, "Empty body")]
 
 
+# B2-60
 def test_do_post_rejects_invalid_json(robot_bridge_module, monkeypatch):
     handler = make_handler(robot_bridge_module, "/robot", b"{", monkeypatch)
 
@@ -242,6 +254,7 @@ def test_do_post_rejects_invalid_json(robot_bridge_module, monkeypatch):
     assert handler.errors == [(400, "Invalid JSON")]
 
 
+# B2-61
 def test_do_post_rejects_missing_action_field(robot_bridge_module, monkeypatch):
     handler = make_handler(robot_bridge_module, "/robot", b'{"foo":"bar"}', monkeypatch)
 
@@ -250,6 +263,7 @@ def test_do_post_rejects_missing_action_field(robot_bridge_module, monkeypatch):
     assert handler.errors == [(400, "Missing 'action' field")]
 
 
+# B2-62
 def test_do_post_starts_background_action_and_returns_json(robot_bridge_module, monkeypatch):
     handler = make_handler(robot_bridge_module, "/robot", b'{"action":"forward"}', monkeypatch)
     thread_calls = []
