@@ -8,6 +8,8 @@ Initialize a venv and install pytorch and numpy.
 
 Use CUDA if you can: `pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu128`
 
+Run the makefile to compile the maze and library (from `maze` dir): `make`
+
 ## Training
 
 ```bash
