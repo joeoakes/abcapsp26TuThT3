@@ -60,6 +60,31 @@ static int g_auto_path_len = 0; // Total steps in path
 static int g_auto_path_idx = 0; // Next step index
 static Uint32 g_auto_last_move = 0; // Tick of last auto move
 
+// Remote ML policy ("N" key) navigation state
+// Policy server runs on the DGX Spark and returns a greedy action for each step.
+static const char* g_policy_url = "https://10.170.8.109:8445/policy";
+static const char* g_policy_client_cert = "../https_final/certs/client.crt";
+static const char* g_policy_client_key  = "../https_final/certs/client.key";
+static const char* g_policy_ca_cert     = "../https_final/certs/ca.crt";
+static bool g_policy_verify_peer = true;
+#define ML_NAV_MAX_STEPS 1000
+static bool g_ml_nav = false;
+static int g_ml_step_count = 0;
+static Uint32 g_ml_last_move = 0;
+
+// Visited-cell tracking (required for policy observation; mirrors MazeEnv._visit_count > 0)
+static uint8_t g_visited[MAZE_H][MAZE_W];
+
+// Wall bitmask for each cell (defined early so fetch_policy_action can read g[y][x].walls).
+enum { WALL_N = 1, WALL_E = 2, WALL_S = 4, WALL_W = 8 };
+
+typedef struct {
+  uint8_t walls;
+  bool visited;
+} Cell;
+
+static Cell g[MAZE_H][MAZE_W];
+
 typedef struct {
   char* items[256];
   int head;
@@ -198,6 +223,116 @@ static void post_robot_command(const char* json) {
 
   curl_slist_free_all(headers);
   curl_easy_cleanup(curl);
+}
+
+// Collect curl response body into a dynamic buffer (used for synchronous requests).
+typedef struct {
+  char*  buf;
+  size_t size;
+  size_t cap;
+} ResponseBuf;
+
+static size_t collect_response(void* ptr, size_t size, size_t nmemb, void* userdata) {
+  ResponseBuf* resp = (ResponseBuf*)userdata;
+  size_t incoming = size * nmemb;
+  size_t needed = resp->size + incoming + 1;
+  if (needed > resp->cap) {
+    size_t new_cap = resp->cap ? resp->cap : 256;
+    while (new_cap < needed) new_cap *= 2;
+    char* new_buf = (char*)realloc(resp->buf, new_cap);
+    if (!new_buf) return 0; // abort transfer
+    resp->buf = new_buf;
+    resp->cap = new_cap;
+  }
+  memcpy(resp->buf + resp->size, ptr, incoming);
+  resp->size += incoming;
+  resp->buf[resp->size] = '\0';
+  return incoming;
+}
+
+// Synchronously POST the current maze state to the remote policy server and
+// parse the returned action (0=N, 1=E, 2=S, 3=W). Returns true on success.
+static bool fetch_policy_action(int px, int py, int* action_out) {
+  if (!g_policy_url || !action_out) return false;
+
+  // Body: {"width":W,"height":H,"agent":[x,y],"goal":[gx,gy],"walls":[...],"visited":[...]}
+  // Worst case: ~80 + W*H*3 + W*H*2 + slack. For 21x15 that's ~1700 bytes.
+  static char body[4096];
+  int n = snprintf(body, sizeof(body),
+    "{\"width\":%d,\"height\":%d,\"agent\":[%d,%d],\"goal\":[%d,%d],\"walls\":[",
+    MAZE_W, MAZE_H, px, py, MAZE_W - 1, MAZE_H - 1);
+
+  for (int y = 0; y < MAZE_H && n < (int)sizeof(body); y++) {
+    for (int x = 0; x < MAZE_W && n < (int)sizeof(body); x++) {
+      const char* sep = (x == 0 && y == 0) ? "" : ",";
+      n += snprintf(body + n, sizeof(body) - n, "%s%u", sep, (unsigned)g[y][x].walls);
+    }
+  }
+  n += snprintf(body + n, sizeof(body) - n, "],\"visited\":[");
+  for (int y = 0; y < MAZE_H && n < (int)sizeof(body); y++) {
+    for (int x = 0; x < MAZE_W && n < (int)sizeof(body); x++) {
+      const char* sep = (x == 0 && y == 0) ? "" : ",";
+      n += snprintf(body + n, sizeof(body) - n, "%s%d", sep, g_visited[y][x] ? 1 : 0);
+    }
+  }
+  n += snprintf(body + n, sizeof(body) - n, "]}");
+
+  if (n >= (int)sizeof(body)) {
+    fprintf(stderr, "policy body overflow (n=%d)\n", n);
+    return false;
+  }
+
+  CURL* curl = curl_easy_init();
+  if (!curl) return false;
+
+  ResponseBuf resp = {0};
+  struct curl_slist* headers = NULL;
+  headers = curl_slist_append(headers, "Content-Type: application/json");
+
+  curl_easy_setopt(curl, CURLOPT_URL, g_policy_url);
+  curl_easy_setopt(curl, CURLOPT_POST, 1L);
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)n);
+  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, collect_response);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
+
+  // mTLS infrastructure (peer verification controlled by g_policy_verify_peer).
+  if (g_policy_client_cert) curl_easy_setopt(curl, CURLOPT_SSLCERT, g_policy_client_cert);
+  if (g_policy_client_key)  curl_easy_setopt(curl, CURLOPT_SSLKEY,  g_policy_client_key);
+  if (g_policy_ca_cert)     curl_easy_setopt(curl, CURLOPT_CAINFO,  g_policy_ca_cert);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, g_policy_verify_peer ? 1L : 0L);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, g_policy_verify_peer ? 2L : 0L);
+
+  CURLcode res = curl_easy_perform(curl);
+  long http_code = 0;
+  curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+  curl_slist_free_all(headers);
+  curl_easy_cleanup(curl);
+
+  bool ok = false;
+  if (res != CURLE_OK) {
+    fprintf(stderr, "policy POST failed: %s\n", curl_easy_strerror(res));
+  } else if (http_code != 200) {
+    fprintf(stderr, "policy HTTP %ld\n", http_code);
+  } else if (resp.buf) {
+    const char* p = strstr(resp.buf, "\"action\"");
+    if (p) {
+      p = strchr(p, ':');
+      if (p) {
+        int a = atoi(p + 1);
+        if (a >= 0 && a < 4) {
+          *action_out = a;
+          ok = true;
+        }
+      }
+    }
+    if (!ok) fprintf(stderr, "policy bad response body: %s\n", resp.buf);
+  }
+  free(resp.buf);
+  return ok;
 }
 
 // Generic queue worker — calls post_fn for each dequeued JSON string
@@ -373,16 +508,6 @@ static void robot_send_move(int dx, int dy, int* robot_heading) {
   robot_enqueue_action("forward");
   *robot_heading = desired_heading;
 }
-
-// Wall bitmask for each cell
-enum { WALL_N = 1, WALL_E = 2, WALL_S = 4, WALL_W = 8 };
-
-typedef struct {
-  uint8_t walls;
-  bool visited;
-} Cell;
-
-static Cell g[MAZE_H][MAZE_W];
 
 static inline bool in_bounds(int x, int y) {
   return (x >= 0 && x < MAZE_W && y >= 0 && y < MAZE_H);
@@ -566,7 +691,7 @@ static int astar_solve(int sx, int sy, int gx, int gy) {
 }
 
 // Player / goal rendering
-static void draw_player_goal(SDL_Renderer* r, int px, int py, bool auto_mode) {
+static void draw_player_goal(SDL_Renderer* r, int px, int py, bool auto_mode, bool ml_mode) {
   int ox = PAD;
   int oy = PAD;
 
@@ -588,8 +713,10 @@ static void draw_player_goal(SDL_Renderer* r, int px, int py, bool auto_mode) {
     CELL - 16
   };
 
-  // Change color based on mode (normal -> yellow, auto -> blue)
-  if (auto_mode)
+  // Color per mode: normal=yellow, A*=blue, ML=magenta
+  if (ml_mode)
+    SDL_SetRenderDrawColor(r, 200, 60, 220, 255);
+  else if (auto_mode)
     SDL_SetRenderDrawColor(r, 50, 100, 230, 255);
   else
     SDL_SetRenderDrawColor(r, 230, 200, 40, 255);
@@ -612,6 +739,7 @@ static bool try_move(int* px, int* py, int dx, int dy) {
 
   *px = nx;
   *py = ny;
+  g_visited[ny][nx] = 1;
   return true;
 }
 
@@ -623,6 +751,8 @@ static void regenerate(int* px, int* py, SDL_Window* win) {
   maze_init();
   maze_generate(0, 0);
   *px = 0; *py = 0;
+  memset(g_visited, 0, sizeof(g_visited));
+  g_visited[0][0] = 1;
   generate_session_id();
   reset_session_stats();
   SDL_SetWindowTitle(win, "SDL2 Maze - Reach the green goal (R to regenerate)");
@@ -852,9 +982,42 @@ int main(int argc, char** argv) {
   }
   printf("Auto-nav delay:  %d ms\n", g_auto_nav_delay_ms);
 
+  // Remote ML-policy server (press N in the maze window to invoke)
+  const char* env_policy = getenv("POLICY_URL");
+  if (env_policy && strlen(env_policy) > 0) g_policy_url = env_policy;
+
+  const char* env_pcc = getenv("POLICY_CLIENT_CERT");
+  if (env_pcc && strlen(env_pcc) > 0) g_policy_client_cert = env_pcc;
+  const char* env_pck = getenv("POLICY_CLIENT_KEY");
+  if (env_pck && strlen(env_pck) > 0) g_policy_client_key = env_pck;
+  const char* env_pca = getenv("POLICY_CA_CERT");
+  if (env_pca && strlen(env_pca) > 0) g_policy_ca_cert = env_pca;
+
+  const char* env_pvp = getenv("POLICY_VERIFY_PEER");
+  if (env_pvp && strlen(env_pvp) > 0) {
+    char c = env_pvp[0];
+    if (c == '1' || c == 't' || c == 'T' || c == 'y' || c == 'Y') {
+      g_policy_verify_peer = true;
+    } else if (c == '0' || c == 'f' || c == 'F' || c == 'n' || c == 'N') {
+      g_policy_verify_peer = false;
+    }
+  }
+
+  printf("Policy URL:      %s\n", g_policy_url ? g_policy_url : "(disabled)");
+  printf("Policy client cert: %s\n", g_policy_client_cert ? g_policy_client_cert : "(unset)");
+  printf("Policy client key:  %s\n", g_policy_client_key  ? g_policy_client_key  : "(unset)");
+  printf("Policy CA cert:     %s\n", g_policy_ca_cert     ? g_policy_ca_cert     : "(unset)");
+  printf("Policy verify peer: %s\n", g_policy_verify_peer ? "YES" : "NO");
+
   if (g_robot_url && (!g_robot_client_cert || !g_robot_client_key || !g_robot_ca_cert)) {
     fprintf(stderr, "ROBOT_URL is set but ROBOT_CLIENT_CERT/ROBOT_CLIENT_KEY/ROBOT_CA_CERT are required; robot link disabled\n");
     g_robot_url = NULL;
+  }
+
+  if (g_policy_url && g_policy_verify_peer &&
+      (!g_policy_client_cert || !g_policy_client_key || !g_policy_ca_cert)) {
+    fprintf(stderr, "POLICY_VERIFY_PEER is on but POLICY_CLIENT_CERT/POLICY_CLIENT_KEY/POLICY_CA_CERT are required; policy link disabled\n");
+    g_policy_url = NULL;
   }
 
   // Generate session ID for telemetry
@@ -998,6 +1161,7 @@ int main(int argc, char** argv) {
         if (k == SDLK_r) {
           if (!won) post_mission_summary("aborted", "player regenerated");
           g_auto_nav = false;
+          g_ml_nav = false;
           regenerate(&px, &py, win);
           robot_heading = ROBOT_HEADING_NORTH;
           won = false;
@@ -1005,6 +1169,7 @@ int main(int argc, char** argv) {
 
         if (k == SDLK_m && !won) {
           if (!g_auto_nav) {
+            g_ml_nav = false; // cannot run both modes at once
             // Compute A* path from current position to goal
             g_auto_path_len = astar_solve(px, py, MAZE_W - 1, MAZE_H - 1);
             g_auto_path_idx = 0;
@@ -1017,6 +1182,30 @@ int main(int argc, char** argv) {
           } else {
             g_auto_nav = false;
             printf("[A*] auto-nav OFF\n");
+          }
+        }
+
+        // Remote ML-policy auto-navigation
+        if (k == SDLK_n && !won) {
+          if (!g_ml_nav) {
+            // 4/17/26 note: The trained checkpoint is fragile when agent starts mid-maze, so reset to default start
+            if (px != 0 || py != 0) {
+              px = 0;
+              py = 0;
+              robot_heading = ROBOT_HEADING_NORTH;
+              printf("[ML] agent not at start; reset to (0,0)\n");
+            }
+            memset(g_visited, 0, sizeof(g_visited));
+            g_visited[0][0] = 1;
+            g_auto_nav = false; // cannot run both modes at once
+            g_ml_step_count = 0;
+            g_ml_last_move = SDL_GetTicks() - (Uint32)g_auto_nav_delay_ms; // act immediately
+            g_ml_nav = true;
+            printf("[ML] auto-nav ON  (policy_url=%s, step_limit=%d, delay=%dms)\n",
+                   g_policy_url, ML_NAV_MAX_STEPS, g_auto_nav_delay_ms);
+          } else {
+            g_ml_nav = false;
+            printf("[ML] auto-nav OFF\n");
           }
         }
 
@@ -1059,6 +1248,53 @@ int main(int argc, char** argv) {
       }
     }
 
+    // Remote ML-policy auto-navigation: advance one step on the same timer
+    // cadence that A* uses. If the policy can't reach the goal in
+    // ML_NAV_MAX_STEPS attempts, give up and turn auto-nav off.
+    if (g_ml_nav && !won) {
+      Uint32 now = SDL_GetTicks();
+      if (now - g_ml_last_move >= (Uint32)g_auto_nav_delay_ms) {
+        g_ml_last_move = now;
+        int action = -1;
+        if (!fetch_policy_action(px, py, &action)) {
+          fprintf(stderr, "[ML] policy request failed; auto-nav OFF\n");
+          g_ml_nav = false;
+        } else {
+          // action: 0=N, 1=E, 2=S, 3=W
+          const int action_dx[4] = { 0, 1, 0, -1 };
+          const int action_dy[4] = {-1, 0, 1,  0 };
+          int mdx = action_dx[action];
+          int mdy = action_dy[action];
+          bool moved = try_move(&px, &py, mdx, mdy);
+          g_ml_step_count++;
+
+          if (moved) {
+            update_move_counters(mdx, mdy);
+            g_move_sequence++;
+            bool goal_reached = (px == MAZE_W - 1 && py == MAZE_H - 1);
+            output_json_telemetry("ml_policy", px, py, goal_reached);
+            maybe_send_robot(mdx, mdy, &robot_heading);
+
+            if (goal_reached) {
+              won = true;
+              g_ml_nav = false;
+              post_mission_summary("success", "");
+              SDL_SetWindowTitle(win, "You win! Press R to regenerate, Esc to quit");
+              printf("[ML] goal reached in %d policy steps\n", g_ml_step_count);
+            }
+          } else {
+            // Policy tried to walk into a wall; still counts toward the cap.
+            printf("[ML] step %d: blocked action=%d (dx=%d,dy=%d)\n", g_ml_step_count, action, mdx, mdy);
+          }
+
+          if (g_ml_nav && g_ml_step_count >= ML_NAV_MAX_STEPS) {
+            printf("[ML] step cap reached (%d); auto-nav OFF\n", ML_NAV_MAX_STEPS);
+            g_ml_nav = false;
+          }
+        }
+      }
+    }
+
     // A* auto-navigation: advance one step on timer
     if (g_auto_nav && !won && g_auto_path_idx < g_auto_path_len) {
       Uint32 now = SDL_GetTicks();
@@ -1090,7 +1326,7 @@ int main(int argc, char** argv) {
     }
 
     draw_maze(r);
-    draw_player_goal(r, px, py, g_auto_nav);
+    draw_player_goal(r, px, py, g_auto_nav, g_ml_nav);
 
     SDL_RenderPresent(r);
   }
