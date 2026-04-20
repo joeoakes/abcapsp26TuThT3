@@ -396,6 +396,7 @@ function prependLog(docs,isNew=false){
   });
   while(feed.children.length>200)feed.removeChild(feed.lastChild);
   updateTimelineChart();
+  drawMaze();
 }
 
 function initCharts(){
