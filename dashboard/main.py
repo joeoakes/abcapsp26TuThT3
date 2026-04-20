@@ -176,21 +176,38 @@ def compute_stats(docs: list) -> dict:
 
     success_rate = round((goal_hits / total * 100) if total else 0, 1)
 
+    # Compute direction counts from all consecutive position pairs (oldest-first)
+    dir_counts = {"North": 0, "South": 0, "East": 0, "West": 0}
+    positions = []
+    for d in reversed(docs):
+        pos = (d.get("player") or {}).get("position")
+        if isinstance(pos, dict):
+            positions.append(pos)
+    for i in range(1, len(positions)):
+        dx = positions[i].get("x", 0) - positions[i-1].get("x", 0)
+        dy = positions[i].get("y", 0) - positions[i-1].get("y", 0)
+        if dx > 0:    dir_counts["East"]  += 1
+        elif dx < 0:  dir_counts["West"]  += 1
+        elif dy > 0:  dir_counts["South"] += 1
+        elif dy < 0:  dir_counts["North"] += 1
+
+    success_rate = round((goal_hits / total * 100) if total else 0, 1)
+
     return {
         "total_events":   total,
         "goal_reached":   goal_hits,
         "success_rate":   success_rate,
-        "actions":        actions,
+        "actions":        dir_counts,
         "devices":        list(devices),
         "last_position":  last_pos,
         "last_event_ts":  last_ts,
         "sessions":       len(sessions),
         "last_direction": last_direction,
-        "forward":        actions.get("forward",    0),
-        "backward":       actions.get("backward",   0),
-        "turn_left":      actions.get("turn_left",  0),
-        "turn_right":     actions.get("turn_right", 0),
-        "stop":           actions.get("stop",       0),
+        "forward":        dir_counts["North"],
+        "backward":       dir_counts["South"],
+        "turn_left":      dir_counts["West"],
+        "turn_right":     dir_counts["East"],
+        "stop":           0,
     }
 
 # ── REST Endpoints ────────────────────────────────────────────────────────────

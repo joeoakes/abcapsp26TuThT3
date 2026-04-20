@@ -313,7 +313,8 @@ const WS_URL   = `ws://${HOST}:8000/ws`;
 let ws=null, wsRetries=0, recentMoves=[], actionChart=null, timelineChart=null;
 let timelineBuckets={}, missionStart=null, timerInterval=null, lastEventTs=null;
 let currentSessionMoves=[], currentSessionId=null;
-  let allPositions=[];
+let allPositions=[];
+let sessionDirCounts={North:0,South:0,East:0,West:0}, lastSessionPos=null;
 // Clock
 function updateClock(){document.getElementById("clock").textContent=new Date().toLocaleTimeString("en-US",{hour12:false})}
 setInterval(updateClock,1000); updateClock();
@@ -321,12 +322,21 @@ setInterval(updateClock,1000); updateClock();
 // Mission timer
 function startTimer(){
   if(timerInterval)return;
-  if(!missionStart)missionStart=new Date();
+  missionStart=new Date();
   timerInterval=setInterval(()=>{
     const e=Math.floor((Date.now()-missionStart)/1000);
     const mm=String(Math.floor(e/60)).padStart(2,"0"), ss=String(e%60).padStart(2,"0");
     document.getElementById("missionTimer").innerHTML=`${mm}<span class="blink">:</span>${ss}`;
   },1000);
+}
+function stopTimer(){
+  clearInterval(timerInterval);
+  timerInterval=null;
+}
+function resetTimer(){
+  stopTimer();
+  missionStart=null;
+  document.getElementById("missionTimer").innerHTML='00<span class="blink">:</span>00';
 }
 
 function setConn(state,label){
@@ -349,10 +359,10 @@ function applyStats(s){
   setText("statSessions",s.sessions??"—");
   const x=s.last_position?.x??0, y=s.last_position?.y??0;
   setText("posXY",`(${x}, ${y})`);
-  if(total>0){setText("missionStatus","Active");setText("missionMode","Autonomous assist");if(!missionStart){missionStart=new Date();startTimer()}}
+  if(total>0){setText("missionStatus","Active");setText("missionMode","Autonomous assist");}
   if(s.last_event_ts){lastEventTs=new Date(s.last_event_ts);setText("statLastTs",lastEventTs.toLocaleTimeString());updateAge()}
   if(s.last_direction)setText("lastDir",s.last_direction);
-  updateActionChart(s);
+  updateActionChart(sessionDirCounts);
   const lp = s.last_position;
   if(lp && typeof lp.x==="number" && typeof lp.y==="number"){
     const prev=allPositions[allPositions.length-1];
@@ -385,17 +395,34 @@ function prependLog(docs,isNew=false){
       currentSessionId=doc.session_id;
       currentSessionMoves=[];
       allPositions=[];
+      sessionDirCounts={North:0,South:0,East:0,West:0};
+      lastSessionPos=null;
       const el=document.getElementById("goalReached");
       if(el){el.textContent="No";el.className="m-val"}
+      if(isNew){resetTimer();startTimer();setText("missionStatus","Active");setText("missionMode","Autonomous assist");}
     }
     if(doc.player?.position){
-      currentSessionMoves.push(doc.player.position);
-      allPositions.push(doc.player.position);
+      const pos=doc.player.position;
+      if(lastSessionPos){
+        const dx=pos.x-lastSessionPos.x, dy=pos.y-lastSessionPos.y;
+        if(dx>0)sessionDirCounts.East++;
+        else if(dx<0)sessionDirCounts.West++;
+        else if(dy>0)sessionDirCounts.South++;
+        else if(dy<0)sessionDirCounts.North++;
+      }
+      lastSessionPos=pos;
+      currentSessionMoves.push(pos);
+      allPositions.push(pos);
     }
-    if(doc.goal_reached){const el=document.getElementById("goalReached");if(el){el.textContent="Yes";el.className="m-val green"}}
+    if(doc.goal_reached){
+      const el=document.getElementById("goalReached");
+      if(el){el.textContent="Yes";el.className="m-val green"}
+      if(isNew){stopTimer();setText("missionStatus","Complete");setText("missionMode","Goal reached");}
+    }
   });
   while(feed.children.length>200)feed.removeChild(feed.lastChild);
   updateTimelineChart();
+  updateActionChart(sessionDirCounts);
   drawMaze();
 }
 
@@ -406,15 +433,19 @@ function initCharts(){
   updateActionChart({});updateTimelineChart();
 }
 
-function updateActionChart(s){
+function updateActionChart(counts){
   if(!actionChart)return;
-  const a={forward:s.forward||0,backward:s.backward||0,turn_left:s.turn_left||0,turn_right:s.turn_right||0,stop:s.stop||0};
-  const colors=["#00e5ff","#00ff88","#ffe600","#ff6b35","#ff3366"];
+  const dirMap={North:"North ↑",South:"South ↓",West:"West ←",East:"East →"};
+  const colors=["#00e5ff","#ff6b35","#00ff88","#ffe600"];
+  const data=Object.entries(counts||{}).filter(([,v])=>v>0).map(([k,v],i)=>({name:dirMap[k]||k,value:v,itemStyle:{color:colors[i%colors.length],shadowBlur:8,shadowColor:colors[i%colors.length]}}));
+  if(!data.length){
+    actionChart.setOption({backgroundColor:"transparent",title:{text:"No moves yet",left:"center",top:"center",textStyle:{color:"#4a6a84",fontSize:13}},series:[]},true);
+    return;
+  }
   actionChart.setOption({backgroundColor:"transparent",
     tooltip:{trigger:"item",formatter:"{b}: {c} ({d}%)"},
     series:[{type:"pie",radius:["35%","65%"],center:["50%","50%"],
-      data:Object.entries(a).map(([name,value],i)=>({name,value,itemStyle:{color:colors[i],shadowBlur:8,shadowColor:colors[i]}})),
-      label:{color:"#c8dff0",fontSize:10},emphasis:{itemStyle:{shadowBlur:20}}}]},true);
+      data,label:{color:"#c8dff0",fontSize:11},emphasis:{itemStyle:{shadowBlur:20}}}]},true);
 }
 
 function updateTimelineChart(){
