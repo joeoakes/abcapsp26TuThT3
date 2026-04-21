@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Mini-Pupper Mission Dashboard — Team 3</title>
+<title>Mini-Pupper Mission Dashboard — Team Sparky</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=IBM+Plex+Sans:wght@300;400;600&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
@@ -52,12 +52,12 @@
          transition:background .3s;
     position:sticky;top:0;z-index:100}
   .header-left{display:flex;flex-direction:column;gap:3px}
-  .logo{font-family:var(--font-head);font-size:1.05rem;font-weight:900;letter-spacing:3px;
+  .logo{font-family:var(--font-head);font-size:1.75rem;font-weight:900;letter-spacing:3px;
     color:var(--accent);text-shadow:var(--glow)}
   .logo span{color:var(--accent2)}
-  .sub-title{font-family:var(--font-mono);font-size:0.6rem;color:var(--dim);letter-spacing:1px}
+  .sub-title{font-family:var(--font-mono);font-size:1.05rem;font-weight:700;color:var(--dim);letter-spacing:1px}
   .header-right{display:flex;align-items:center;gap:16px}
-  .conn-badge{display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:0.67rem;
+  .conn-badge{display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:1.05rem;font-weight:700;
     color:var(--dim);padding:5px 14px;border-radius:20px;border:1px solid var(--border);transition:all .4s}
   .conn-badge.live{color:var(--green);border-color:var(--green);box-shadow:0 0 12px rgba(0,255,136,.3)}
   .conn-badge.dead{color:var(--red);border-color:var(--red)}
@@ -65,7 +65,7 @@
   .conn-badge.live .conn-dot{background:var(--green);animation:pulse 2s infinite}
   .conn-badge.dead .conn-dot{background:var(--red)}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-  .clock{font-family:var(--font-mono);font-size:.8rem;color:var(--dim)}
+  .clock{font-family:var(--font-mono);font-size:1.25rem;font-weight:700;color:var(--dim)}
 
   .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px;padding:16px 20px;max-width:1800px;margin:0 auto}
 
@@ -76,10 +76,10 @@
   .panel.orange::before{background:linear-gradient(90deg,transparent,var(--accent2),transparent)}
   @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 
-  .panel-title{font-family:var(--font-head);font-size:.57rem;font-weight:700;letter-spacing:3px;
+  .panel-title{font-family:var(--font-head);font-size:1.05rem;font-weight:900;letter-spacing:3px;
     text-transform:uppercase;color:var(--accent);margin-bottom:14px;display:flex;align-items:center;gap:10px}
   .panel-title.orange{color:var(--accent2)}
-  .panel-title .tag{font-size:.53rem;padding:2px 8px;border-radius:3px;border:1px solid currentColor;opacity:.7}
+  .panel-title .tag{font-size:.88rem;font-weight:700;padding:2px 8px;border-radius:3px;border:1px solid currentColor;opacity:.7}
 
   /* Mission cards */
   .mc{border-radius:6px;padding:16px 18px;border:1px solid var(--border);animation:fadeIn .5s ease both;position:relative;overflow:hidden}
@@ -92,13 +92,13 @@
     :root.light .mc.amber-c {background:#fff8ed;border-color:#d4a04a}
     :root.light .mc.blue-c  {background:#edf4ff;border-color:#7ab0d4}
     :root.light .mc.purple-c{background:#f3edff;border-color:#a882d4}
-  .mc-label{font-family:var(--font-mono);font-size:.57rem;letter-spacing:2px;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
-  .mc-val{font-family:var(--font-head);font-size:1.75rem;font-weight:900;line-height:1;transition:all .3s}
+  .mc-label{font-family:var(--font-mono);font-size:1rem;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+  .mc-val{font-family:var(--font-head);font-size:2.75rem;font-weight:900;line-height:1;transition:all .3s}
   .mc-val.green {color:var(--green);text-shadow:0 0 20px rgba(0,255,136,.4)}
   .mc-val.amber {color:var(--yellow);text-shadow:0 0 20px rgba(255,230,0,.4)}
   .mc-val.cyan  {color:var(--accent);text-shadow:var(--glow)}
   .mc-val.orange{color:var(--accent2);text-shadow:var(--glow2)}
-  .mc-sub{font-family:var(--font-mono);font-size:.61rem;color:var(--dim);margin-top:4px}
+  .mc-sub{font-family:var(--font-mono);font-size:1.05rem;font-weight:600;color:var(--dim);margin-top:4px}
   .mc-sub span{color:var(--text)}
   .blink{animation:blink 1s step-end infinite}
   @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
@@ -107,55 +107,55 @@
   .telem-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .telem-row{display:flex;justify-content:space-between;align-items:center;
     padding:10px 14px;background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:4px}
-  .t-label{font-size:.76rem;color:var(--dim)}
-  .t-value{font-family:var(--font-head);font-size:1rem;font-weight:700;color:var(--text)}
+  .t-label{font-size:1.2rem;font-weight:600;color:var(--dim)}
+  .t-value{font-family:var(--font-head);font-size:1.55rem;font-weight:900;color:var(--text)}
   .t-value.accent{color:var(--accent)} .t-value.green{color:var(--green)} .t-value.red{color:var(--red)}
 
   /* Movement */
   .move-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
   .move-row{display:flex;justify-content:space-between;align-items:center;
     padding:10px 14px;background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:4px}
-  .m-label{font-size:.74rem;color:var(--dim)}
-  .m-val{font-family:var(--font-head);font-size:.88rem;font-weight:700;color:var(--text)}
+  .m-label{font-size:1.2rem;font-weight:600;color:var(--dim)}
+  .m-val{font-family:var(--font-head);font-size:1.4rem;font-weight:900;color:var(--text)}
   .m-val.accent{color:var(--accent)} .m-val.green{color:var(--green)} .m-val.red{color:var(--red)} .m-val.orange{color:var(--accent2)}
 
   /* AI & Logging */
   .ai-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
   .ai-chip{display:flex;align-items:center;justify-content:space-between;
     padding:9px 12px;background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:4px}
-  .chip-label{font-size:.71rem;color:var(--dim)}
-  .chip-val{font-family:var(--font-head);font-size:.73rem;font-weight:700;transition:all .3s}
+  .chip-label{font-size:1.15rem;font-weight:600;color:var(--dim)}
+  .chip-val{font-family:var(--font-head);font-size:1.15rem;font-weight:900;transition:all .3s}
   .chip-val.ok{color:var(--green)} .chip-val.warn{color:var(--yellow)} .chip-val.err{color:var(--red)} .chip-val.dim{color:var(--dim)}
 
   .model-box{padding:10px 14px;background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:4px;margin-bottom:12px}
-  .model-box .mo-lbl{font-size:.58rem;color:var(--dim);letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;font-family:var(--font-mono)}
-  .model-box .mo-txt{font-family:var(--font-mono);font-size:.71rem;color:var(--text);line-height:1.6}
+  .model-box .mo-lbl{font-size:1rem;font-weight:700;color:var(--dim);letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;font-family:var(--font-mono)}
+  .model-box .mo-txt{font-family:var(--font-mono);font-size:1.15rem;font-weight:600;color:var(--text);line-height:1.6}
 
   .ai-row{display:flex;gap:8px}
   .ai-row input{flex:1;background:rgba(0,0,0,.5);border:1px solid var(--border);color:var(--text);
-    font-family:var(--font-mono);font-size:.71rem;padding:7px 10px;border-radius:4px;outline:none}
+    font-family:var(--font-mono);font-size:1.15rem;font-weight:600;padding:9px 12px;border-radius:4px;outline:none}
   .ai-row input:focus{border-color:var(--accent)}
   .btn{background:transparent;border:1px solid var(--accent);color:var(--accent);
-    font-family:var(--font-mono);font-size:.64rem;letter-spacing:1px;padding:7px 14px;border-radius:4px;cursor:pointer;transition:all .2s}
+    font-family:var(--font-mono);font-size:1.05rem;font-weight:700;letter-spacing:1px;padding:9px 18px;border-radius:4px;cursor:pointer;transition:all .2s}
   .btn:hover{background:rgba(0,229,255,.1);box-shadow:var(--glow)}
   .btn.orange{border-color:var(--accent2);color:var(--accent2)}
   .btn.orange:hover{background:rgba(255,107,53,.1)}
 
   /* Log */
-  .log-feed{font-family:var(--font-mono);font-size:.66rem;height:200px;overflow-y:auto;
+  .log-feed{font-family:var(--font-mono);font-size:1.1rem;font-weight:600;height:200px;overflow-y:auto;
     display:flex;flex-direction:column-reverse;gap:2px}
   .log-feed::-webkit-scrollbar{width:3px}
   .log-feed::-webkit-scrollbar-thumb{background:var(--border)}
   .log-entry{padding:4px 8px;border-radius:2px;border-left:2px solid var(--border);color:var(--dim);line-height:1.5;animation:slideIn .3s ease}
   .log-entry.new{border-left-color:var(--accent);color:var(--text);background:rgba(0,229,255,.04)}
   .log-entry .ts{color:var(--accent);margin-right:8px}
-  .log-entry .act{color:var(--accent2);margin-right:6px;font-weight:bold}
+  .log-entry .act{color:var(--accent2);margin-right:6px;font-weight:900}
   @keyframes slideIn{from{opacity:0;transform:translateX(-5px)}to{opacity:1;transform:none}}
 
   #mazeCanvas{background:rgba(0,0,0,.4);border:1px solid var(--border);border-radius:4px;display:block;width:100%;height:auto}
 
   .refresh-btn{position:absolute;top:12px;right:14px;background:transparent;border:none;cursor:pointer;
-    font-family:var(--font-mono);font-size:.61rem;color:var(--dim)}
+    font-family:var(--font-mono);font-size:1.05rem;font-weight:700;color:var(--dim)}
   .refresh-btn:hover{color:var(--accent)}
 
   .divider{grid-column:span 12;height:1px;background:linear-gradient(90deg,transparent,var(--border),transparent)}
@@ -179,7 +179,7 @@
 
 <header>
   <div class="header-left">
-    <div class="logo">🐾 Team 3 — Mini-Pupper <span>Mission Dashboard</span></div>
+    <div class="logo">🐾 Team Sparky — Mini-Pupper <span>Mission Dashboard</span></div>
     <div class="sub-title">Telemetry → HTTPS (8445) → Mini-Pupper → Logging / AI</div>
   </div>
   <div class="header-right">
@@ -313,7 +313,8 @@ const WS_URL   = `ws://${HOST}:8000/ws`;
 let ws=null, wsRetries=0, recentMoves=[], actionChart=null, timelineChart=null;
 let timelineBuckets={}, missionStart=null, timerInterval=null, lastEventTs=null;
 let currentSessionMoves=[], currentSessionId=null;
-  let allPositions=[];
+let allPositions=[];
+let sessionDirCounts={North:0,South:0,East:0,West:0}, lastSessionPos=null;
 // Clock
 function updateClock(){document.getElementById("clock").textContent=new Date().toLocaleTimeString("en-US",{hour12:false})}
 setInterval(updateClock,1000); updateClock();
@@ -321,12 +322,21 @@ setInterval(updateClock,1000); updateClock();
 // Mission timer
 function startTimer(){
   if(timerInterval)return;
-  if(!missionStart)missionStart=new Date();
+  missionStart=new Date();
   timerInterval=setInterval(()=>{
     const e=Math.floor((Date.now()-missionStart)/1000);
     const mm=String(Math.floor(e/60)).padStart(2,"0"), ss=String(e%60).padStart(2,"0");
     document.getElementById("missionTimer").innerHTML=`${mm}<span class="blink">:</span>${ss}`;
   },1000);
+}
+function stopTimer(){
+  clearInterval(timerInterval);
+  timerInterval=null;
+}
+function resetTimer(){
+  stopTimer();
+  missionStart=null;
+  document.getElementById("missionTimer").innerHTML='00<span class="blink">:</span>00';
 }
 
 function setConn(state,label){
@@ -349,10 +359,10 @@ function applyStats(s){
   setText("statSessions",s.sessions??"—");
   const x=s.last_position?.x??0, y=s.last_position?.y??0;
   setText("posXY",`(${x}, ${y})`);
-  if(total>0){setText("missionStatus","Active");setText("missionMode","Autonomous assist");if(!missionStart){missionStart=new Date();startTimer()}}
+  if(total>0){setText("missionStatus","Active");setText("missionMode","Autonomous assist");}
   if(s.last_event_ts){lastEventTs=new Date(s.last_event_ts);setText("statLastTs",lastEventTs.toLocaleTimeString());updateAge()}
   if(s.last_direction)setText("lastDir",s.last_direction);
-  updateActionChart(s);
+  updateActionChart(sessionDirCounts);
   const lp = s.last_position;
   if(lp && typeof lp.x==="number" && typeof lp.y==="number"){
     const prev=allPositions[allPositions.length-1];
@@ -385,17 +395,35 @@ function prependLog(docs,isNew=false){
       currentSessionId=doc.session_id;
       currentSessionMoves=[];
       allPositions=[];
+      sessionDirCounts={North:0,South:0,East:0,West:0};
+      lastSessionPos=null;
       const el=document.getElementById("goalReached");
       if(el){el.textContent="No";el.className="m-val"}
+      if(isNew){resetTimer();startTimer();setText("missionStatus","Active");setText("missionMode","Autonomous assist");}
     }
     if(doc.player?.position){
-      currentSessionMoves.push(doc.player.position);
-      allPositions.push(doc.player.position);
+      const pos=doc.player.position;
+      if(lastSessionPos){
+        const dx=pos.x-lastSessionPos.x, dy=pos.y-lastSessionPos.y;
+        if(dx>0)sessionDirCounts.East++;
+        else if(dx<0)sessionDirCounts.West++;
+        else if(dy>0)sessionDirCounts.South++;
+        else if(dy<0)sessionDirCounts.North++;
+      }
+      lastSessionPos=pos;
+      currentSessionMoves.push(pos);
+      allPositions.push(pos);
     }
-    if(doc.goal_reached){const el=document.getElementById("goalReached");if(el){el.textContent="Yes";el.className="m-val green"}}
+    if(doc.goal_reached){
+      const el=document.getElementById("goalReached");
+      if(el){el.textContent="Yes";el.className="m-val green"}
+      if(isNew){stopTimer();setText("missionStatus","Complete");setText("missionMode","Goal reached");}
+    }
   });
   while(feed.children.length>200)feed.removeChild(feed.lastChild);
   updateTimelineChart();
+  updateActionChart(sessionDirCounts);
+  drawMaze();
 }
 
 function initCharts(){
@@ -405,15 +433,19 @@ function initCharts(){
   updateActionChart({});updateTimelineChart();
 }
 
-function updateActionChart(s){
+function updateActionChart(counts){
   if(!actionChart)return;
-  const a={forward:s.forward||0,backward:s.backward||0,turn_left:s.turn_left||0,turn_right:s.turn_right||0,stop:s.stop||0};
-  const colors=["#00e5ff","#00ff88","#ffe600","#ff6b35","#ff3366"];
+  const dirMap={North:"North ↑",South:"South ↓",West:"West ←",East:"East →"};
+  const colors=["#00e5ff","#ff6b35","#00ff88","#ffe600"];
+  const data=Object.entries(counts||{}).filter(([,v])=>v>0).map(([k,v],i)=>({name:dirMap[k]||k,value:v,itemStyle:{color:colors[i%colors.length],shadowBlur:8,shadowColor:colors[i%colors.length]}}));
+  if(!data.length){
+    actionChart.setOption({backgroundColor:"transparent",title:{text:"No moves yet",left:"center",top:"center",textStyle:{color:"#4a6a84",fontSize:13}},series:[]},true);
+    return;
+  }
   actionChart.setOption({backgroundColor:"transparent",
     tooltip:{trigger:"item",formatter:"{b}: {c} ({d}%)"},
     series:[{type:"pie",radius:["35%","65%"],center:["50%","50%"],
-      data:Object.entries(a).map(([name,value],i)=>({name,value,itemStyle:{color:colors[i],shadowBlur:8,shadowColor:colors[i]}})),
-      label:{color:"#c8dff0",fontSize:10},emphasis:{itemStyle:{shadowBlur:20}}}]},true);
+      data,label:{color:"#c8dff0",fontSize:11},emphasis:{itemStyle:{shadowBlur:20}}}]},true);
 }
 
 function updateTimelineChart(){
