@@ -444,7 +444,12 @@ function drawMaze(){
   const offX=(W-rangeX*scale)/2,offY=(H-rangeY*scale)/2;
   const tx=p=>offX+(p.x-minX)*scale,ty=p=>offY+(p.y-minY)*scale;
   ctx.beginPath();ctx.strokeStyle="rgba(0,229,255,.35)";ctx.lineWidth=1.5;
-  trail.forEach((p,i)=>i===0?ctx.moveTo(tx(p),ty(p)):ctx.lineTo(tx(p),ty(p)));ctx.stroke();
+  trail.forEach((p,i)=>{
+    if(i===0){ctx.moveTo(tx(p),ty(p));return}
+    const prev=trail[i-1];
+    const adj=Math.abs(p.x-prev.x)+Math.abs(p.y-prev.y)===1;
+    adj?ctx.lineTo(tx(p),ty(p)):ctx.moveTo(tx(p),ty(p));
+  });ctx.stroke();
   trail.forEach((p,i)=>{ctx.beginPath();ctx.arc(tx(p),ty(p),i===trail.length-1?5:2,0,Math.PI*2);ctx.fillStyle=i===trail.length-1?"#00e5ff":"rgba(0,229,255,.25)";ctx.fill()});
   const last=trail[trail.length-1];
   ctx.beginPath();ctx.arc(tx(last),ty(last),9,0,Math.PI*2);ctx.strokeStyle="rgba(0,229,255,.4)";ctx.lineWidth=1;ctx.stroke();
