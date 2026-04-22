@@ -363,11 +363,6 @@ function applyStats(s){
   if(s.last_event_ts){lastEventTs=new Date(s.last_event_ts);setText("statLastTs",lastEventTs.toLocaleTimeString());updateAge()}
   if(s.last_direction)setText("lastDir",s.last_direction);
   updateActionChart(sessionDirCounts);
-  const lp = s.last_position;
-  if(lp && typeof lp.x==="number" && typeof lp.y==="number"){
-    const prev=allPositions[allPositions.length-1];
-    if(!prev || prev.x!==lp.x || prev.y!==lp.y) allPositions.push({x:lp.x,y:lp.y});
-  }
   drawMaze();
 }
 
