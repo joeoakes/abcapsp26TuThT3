@@ -207,8 +207,8 @@ The dashboard reflects the system's secure telemetry design:
 
 ## Screenshots
 
-![Mission Dashboard Preview](dashboard.png)
-![Mission Dashboard Preview](dashboard.png.2.png)
+![Mission Dashboard Preview](Dashboard.png)
+![Mission Dashboard Preview](Dashboard2.png)
 
 ---
 
