@@ -1,22 +1,20 @@
-# 🐾 Team 3 – Mini-Pupper Mission Dashboard
+# 🐾 Team Sparky – Mini-Pupper Mission Dashboard
 
 ## Overview
 
-This folder contains the live mission dashboard for the Team 3 Mini-Pupper system.
+This folder contains the live mission dashboard for the Team Sparky Mini-Pupper system.
 
 The dashboard provides real-time visualization of:
 
-- Mission status
-- Telemetry data
-- Robot movement information
-- AI and logging system health
+- Mission status and session timer
+- Telemetry data from MongoDB
+- Robot movement and maze path visualization
+- AI diagnostics and logging system health
 
 ---
 
 ## How to Run
 
-## Setup
- 
 ### Step 1 — Create a virtual environment (first time only)
 
 ```bash
@@ -85,6 +83,35 @@ Then open <http://localhost:8080/index.html> in your browser. The page talks to 
 
 ---
 
+## Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `MONGO_URI` | `mongodb://localhost:27017` | MongoDB connection string |
+| `MONGO_DB` | `maze` | MongoDB database name |
+| `MONGO_COL` | `moves` | MongoDB collection name (`team3ttmoves` for live data) |
+| `DASHBOARD_PORT` | `8000` | Port the FastAPI backend listens on |
+| `AI_SERVER_URL` | _(empty)_ | Optional AI server URL; falls back to local diagnostics if unset |
+| `REDIS_HOST` | `localhost` | Redis host |
+| `REDIS_PORT` | `6379` | Redis port |
+| `REDIS_KEY_PREFIX` | `team3ttmission` | Redis key prefix for mission summary hashes |
+
+---
+
+## API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | MongoDB + server status check |
+| `GET` | `/moves` | Recent telemetry events (`?limit=100&sort=desc&session_id=...`) |
+| `GET` | `/stats` | Aggregate stats computed from up to 5000 recent events |
+| `GET` | `/sessions` | List distinct session IDs |
+| `GET` | `/mission_stats` | Per-mission move counts from Redis |
+| `GET` | `/ai/diagnostics` | AI analysis (`?query=...`); proxies to `AI_SERVER_URL` or runs locally |
+| `WS` | `/ws` | WebSocket — receives `init`, `update`, and `heartbeat` messages |
+
+---
+
 ## System Architecture Context
 
 Telemetry flow in our system:
@@ -94,7 +121,7 @@ GameHat Maze App
 ↓ HTTPS (Port 8445)
 Mini-Pupper Telemetry Receiver
 ↓
-Logging Server (MongoDB) — 10.170.8.130
+Logging Server (MongoDB + Redis) — 10.170.8.130
 ↓
 main.py (reads MongoDB via SSH tunnel, pushes via WebSocket)
 ↓
@@ -103,47 +130,56 @@ Dashboard (index.html)
 AI Server — 10.170.8.109
 ```
 
+Redis stores per-session mission summaries (move counts by direction) under keys matching `{REDIS_KEY_PREFIX}:{session_id}`. The `/mission_stats` endpoint aggregates these for the Action Distribution chart.
+
 ---
 
 ## Dashboard Sections
 
-### 1. Status Overview
+### 1. Mission Status Cards
 
-- Mission Status
-- Mission Timer (Session Runtime)
-- Total Telemetry Events
-- Last Event Timestamp
-- Secure Connection Indicator (HTTPS / mTLS)
+- **Mission Status** — Active / Complete / Standby; updates automatically when telemetry arrives or goal is reached
+- **Mission Timer** — Counts up from when the current session started; resets on new session ID
+- **Telemetry Events** — Total events logged to MongoDB
+- **Mission Time** — Timestamp and age of the most recent telemetry event
 
 ### 2. Telemetry Summary
 
 - Total Commands
-- Successful Moves
+- Successful Moves (goal_reached events)
 - Failed Commands
 - Success Rate
 
 ### 3. Movement & Position
 
-- Current (X, Y) Maze Coordinates
-- Direction
-- Goal Reached Indicator
-- Live Maze Map Visualization
+- Current (X, Y) maze coordinates
+- Last direction of movement (North / South / East / West / Stationary)
+- Active sessions count
+- Goal Reached indicator
+- Live maze map — draws the robot's path trail from the last 120 positions; gaps appear at non-adjacent teleport jumps
 
 ### 4. AI & Logging
 
-- MongoDB Status
-- AI Server Status
-- Secure Channel Status (HTTPS)
-- mTLS Status
-- WebSocket Status
-- Robot Bridge Status
-- Last Model Output
+- MongoDB, WebSocket, Robot Bridge, Secure Channel, and mTLS status chips
+- **Last Model Output** — first sentence of the most recent AI diagnostic result
+- **Run Diagnostics** — sends a custom query to `/ai/diagnostics` and shows the full response in the Diagnostic Detail panel
 
 ### 5. Charts
 
-- Action Distribution (pie chart)
-- Event Timeline (bar chart)
-- Live Telemetry Feed
+- **Action Distribution** — donut chart of directional moves (North/South/East/West) for the current session
+- **Event Timeline** — bar chart of events per minute (last 20 buckets)
+
+### 6. Live Telemetry Feed
+
+Scrolling log of the 200 most recent events with timestamp, action type, position, and session ID.
+
+---
+
+## UI Features
+
+- **Light/Dark theme toggle** — persisted in `localStorage`; click ☀ LIGHT / ☾ DARK in the header
+- **WebSocket auto-reconnect** — exponential backoff up to 15 seconds
+- **Session detection** — when a new `session_id` appears in the feed, the timer resets and maze path clears automatically
 
 ---
 
@@ -160,21 +196,22 @@ The dashboard reflects the system's secure telemetry design:
 
 ## Current Status
 
-This is a live integrated dashboard.
-
 - ✅ Live MongoDB connection via SSH tunnel
 - ✅ Real-time telemetry feed via WebSocket
 - ✅ Live maze map from player position data
+- ✅ Per-session action distribution from Redis
 - ✅ AI diagnostics endpoint (local fallback if AI server offline)
+- ✅ Light/Dark theme toggle
 
 ---
 
-## Team 3 – CMPSC Project
-
-Mini-Pupper + Maze App + Telemetry + AI Integration
-
----
-## Current Status
+## Screenshots
 
 ![Mission Dashboard Preview](dashboard.png)
 ![Mission Dashboard Preview](dashboard.png.2.png)
+
+---
+
+## Team Sparky – CMPSC Project
+
+Mini-Pupper + Maze App + Telemetry + AI Integration
