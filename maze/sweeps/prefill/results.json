@@ -1,0 +1,310 @@
+{
+  "args": {
+    "prefills": [
+      25,
+      100,
+      200,
+      500,
+      1000
+    ],
+    "out": "sweeps/prefill",
+    "seed": 0,
+    "episodes": 5000,
+    "width": 21,
+    "height": 15,
+    "patch_radius": 3,
+    "max_steps": 500,
+    "observation_mode": "global",
+    "lr": 0.001,
+    "epsilon_start": 1.0,
+    "epsilon_end": 0.05,
+    "epsilon_decay": 0.999,
+    "batch_size": 64,
+    "expert_buffer_size": 200000,
+    "hidden": 256,
+    "train_freq": 4,
+    "log_interval": 250,
+    "save_interval": 500,
+    "eval_interval": 250,
+    "eval_mazes": 500,
+    "eval_seed_offset": 1000000,
+    "bc_pretrain_steps": 5000,
+    "post_bc_epsilon": 0.1,
+    "eval_mazes_final": 1000,
+    "eval_epsilon_final": 0.0,
+    "rescore_last_k": 6,
+    "rescore_only": true
+  },
+  "rows": [
+    {
+      "prefill": 25,
+      "elapsed_s": 0.0,
+      "true_best_success": 88.6,
+      "true_best_episode": 4000,
+      "true_best_checkpoint": "sweeps/prefill/prefill_00025/dagger_ep4000.pt",
+      "late_mean_success": 83.58,
+      "late_std_success": 5.028618100432756,
+      "late_n": 5,
+      "advisory_best_success": 88.2,
+      "advisory_checkpoint": "sweeps/prefill/prefill_00025/dagger_best.pt",
+      "per_checkpoint": [
+        {
+          "checkpoint": "sweeps/prefill/prefill_00025/dagger_ep1000.pt",
+          "episode": 1000,
+          "success_rate": 77.10000000000001,
+          "avg_efficiency": 1.000842673985722,
+          "episodes_trained": 1000,
+          "train_steps": 57975
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_00025/dagger_ep2000.pt",
+          "episode": 2000,
+          "success_rate": 80.7,
+          "avg_efficiency": 1.000426779031283,
+          "episodes_trained": 2000,
+          "train_steps": 104131
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_00025/dagger_ep3000.pt",
+          "episode": 3000,
+          "success_rate": 82.89999999999999,
+          "avg_efficiency": 1.00024004482607,
+          "episodes_trained": 3000,
+          "train_steps": 146631
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_00025/dagger_ep4000.pt",
+          "episode": 4000,
+          "success_rate": 88.6,
+          "avg_efficiency": 1.0002688616847428,
+          "episodes_trained": 4000,
+          "train_steps": 187117
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_00025/dagger_final.pt",
+          "episode": 4000,
+          "success_rate": 88.6,
+          "avg_efficiency": 1.0002688616847428,
+          "episodes_trained": 4000,
+          "train_steps": 187117
+        }
+      ]
+    },
+    {
+      "prefill": 100,
+      "elapsed_s": 0.0,
+      "true_best_success": 85.7,
+      "true_best_episode": 4000,
+      "true_best_checkpoint": "sweeps/prefill/prefill_00100/dagger_ep4000.pt",
+      "late_mean_success": 81.32000000000001,
+      "late_std_success": 5.962549790148508,
+      "late_n": 5,
+      "advisory_best_success": 79.80000000000001,
+      "advisory_checkpoint": "sweeps/prefill/prefill_00100/dagger_best.pt",
+      "per_checkpoint": [
+        {
+          "checkpoint": "sweeps/prefill/prefill_00100/dagger_ep1000.pt",
+          "episode": 1000,
+          "success_rate": 71.3,
+          "avg_efficiency": 1.0002525555584212,
+          "episodes_trained": 1000,
+          "train_steps": 54494
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_00100/dagger_ep2000.pt",
+          "episode": 2000,
+          "success_rate": 80.80000000000001,
+          "avg_efficiency": 1.0004326074106547,
+          "episodes_trained": 2000,
+          "train_steps": 100142
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_00100/dagger_ep3000.pt",
+          "episode": 3000,
+          "success_rate": 83.1,
+          "avg_efficiency": 1.0003254673909745,
+          "episodes_trained": 3000,
+          "train_steps": 142781
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_00100/dagger_ep4000.pt",
+          "episode": 4000,
+          "success_rate": 85.7,
+          "avg_efficiency": 1.000197563223993,
+          "episodes_trained": 4000,
+          "train_steps": 184631
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_00100/dagger_final.pt",
+          "episode": 4000,
+          "success_rate": 85.7,
+          "avg_efficiency": 1.000197563223993,
+          "episodes_trained": 4000,
+          "train_steps": 184631
+        }
+      ]
+    },
+    {
+      "prefill": 200,
+      "elapsed_s": 0.0,
+      "true_best_success": 81.8,
+      "true_best_episode": 3000,
+      "true_best_checkpoint": "sweeps/prefill/prefill_00200/dagger_ep3000.pt",
+      "late_mean_success": 79.82000000000001,
+      "late_std_success": 2.0680909070928215,
+      "late_n": 5,
+      "advisory_best_success": 80.4,
+      "advisory_checkpoint": "sweeps/prefill/prefill_00200/dagger_best.pt",
+      "per_checkpoint": [
+        {
+          "checkpoint": "sweeps/prefill/prefill_00200/dagger_ep1000.pt",
+          "episode": 1000,
+          "success_rate": 76.3,
+          "avg_efficiency": 1.000398386515152,
+          "episodes_trained": 1000,
+          "train_steps": 55531
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_00200/dagger_ep2000.pt",
+          "episode": 2000,
+          "success_rate": 80.4,
+          "avg_efficiency": 1.0001853978546706,
+          "episodes_trained": 2000,
+          "train_steps": 101279
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_00200/dagger_ep3000.pt",
+          "episode": 3000,
+          "success_rate": 81.8,
+          "avg_efficiency": 1.000241996715312,
+          "episodes_trained": 3000,
+          "train_steps": 144008
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_00200/dagger_ep4000.pt",
+          "episode": 4000,
+          "success_rate": 80.30000000000001,
+          "avg_efficiency": 1.0001425518570544,
+          "episodes_trained": 4000,
+          "train_steps": 186714
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_00200/dagger_final.pt",
+          "episode": 4000,
+          "success_rate": 80.30000000000001,
+          "avg_efficiency": 1.0001425518570544,
+          "episodes_trained": 4000,
+          "train_steps": 186714
+        }
+      ]
+    },
+    {
+      "prefill": 500,
+      "elapsed_s": 0.0,
+      "true_best_success": 86.7,
+      "true_best_episode": 3000,
+      "true_best_checkpoint": "sweeps/prefill/prefill_00500/dagger_ep3000.pt",
+      "late_mean_success": 83.52,
+      "late_std_success": 5.0642867217407845,
+      "late_n": 5,
+      "advisory_best_success": 86.7,
+      "advisory_checkpoint": "sweeps/prefill/prefill_00500/dagger_best.pt",
+      "per_checkpoint": [
+        {
+          "checkpoint": "sweeps/prefill/prefill_00500/dagger_ep1000.pt",
+          "episode": 1000,
+          "success_rate": 74.6,
+          "avg_efficiency": 1.0005019841470593,
+          "episodes_trained": 1000,
+          "train_steps": 50476
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_00500/dagger_ep2000.pt",
+          "episode": 2000,
+          "success_rate": 84.3,
+          "avg_efficiency": 1.000231925656385,
+          "episodes_trained": 2000,
+          "train_steps": 93377
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_00500/dagger_ep3000.pt",
+          "episode": 3000,
+          "success_rate": 86.7,
+          "avg_efficiency": 1.0001618185792718,
+          "episodes_trained": 3000,
+          "train_steps": 134532
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_00500/dagger_ep4000.pt",
+          "episode": 4000,
+          "success_rate": 86.0,
+          "avg_efficiency": 1.0001890347244393,
+          "episodes_trained": 4000,
+          "train_steps": 176145
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_00500/dagger_final.pt",
+          "episode": 4000,
+          "success_rate": 86.0,
+          "avg_efficiency": 1.0001890347244393,
+          "episodes_trained": 4000,
+          "train_steps": 176145
+        }
+      ]
+    },
+    {
+      "prefill": 1000,
+      "elapsed_s": 0.0,
+      "true_best_success": 89.5,
+      "true_best_episode": 4000,
+      "true_best_checkpoint": "sweeps/prefill/prefill_01000/dagger_ep4000.pt",
+      "late_mean_success": 80.64000000000001,
+      "late_std_success": 12.18966775593166,
+      "late_n": 5,
+      "advisory_best_success": 89.5,
+      "advisory_checkpoint": "sweeps/prefill/prefill_01000/dagger_best.pt",
+      "per_checkpoint": [
+        {
+          "checkpoint": "sweeps/prefill/prefill_01000/dagger_ep1000.pt",
+          "episode": 1000,
+          "success_rate": 83.3,
+          "avg_efficiency": 1.0004973255773792,
+          "episodes_trained": 1000,
+          "train_steps": 52162
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_01000/dagger_ep2000.pt",
+          "episode": 2000,
+          "success_rate": 81.0,
+          "avg_efficiency": 1.0003085676002352,
+          "episodes_trained": 2000,
+          "train_steps": 93428
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_01000/dagger_ep3000.pt",
+          "episode": 3000,
+          "success_rate": 59.9,
+          "avg_efficiency": 1.0001188668917314,
+          "episodes_trained": 3000,
+          "train_steps": 134037
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_01000/dagger_ep4000.pt",
+          "episode": 4000,
+          "success_rate": 89.5,
+          "avg_efficiency": 1.0001937350410628,
+          "episodes_trained": 4000,
+          "train_steps": 175450
+        },
+        {
+          "checkpoint": "sweeps/prefill/prefill_01000/dagger_final.pt",
+          "episode": 4000,
+          "success_rate": 89.5,
+          "avg_efficiency": 1.0001937350410628,
+          "episodes_trained": 4000,
+          "train_steps": 175450
+        }
+      ]
+    }
+  ]
+}
