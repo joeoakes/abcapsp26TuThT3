@@ -17,3 +17,6 @@ certs/
 *.pyc
 .venv/
 venv/
+
+# Logs
+docs/dagger_diagram/dagger_diagram.log
