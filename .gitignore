@@ -18,5 +18,7 @@ certs/
 .venv/
 venv/
 
-# Logs
-docs/dagger_diagram/dagger_diagram.log
+# LaTeX build artifacts
+*.aux
+*.log
+*.synctex.gz
