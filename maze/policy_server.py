@@ -155,7 +155,7 @@ class PolicyHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, fmt, *args):  # noqa: A003 - overriding stdlib
-        print(f"[policy] {args[0]} {args[1]} {args[2]}")
+        print(f"[policy] {fmt % args}" if args else f"[policy] {fmt}")
 
 
 def load_agent() -> DAggerAgent:
