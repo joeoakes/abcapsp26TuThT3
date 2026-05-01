@@ -1,0 +1,36 @@
+TestID	Test Name	Test Type	Priority	Description	Expected Output
+B3-01	build_global_obs produces correct shape and channels	unit	high	build_global_obs returns (7,H,W) float32 with correct agent/goal/visited channel layout	shape==(7,2,3), agent/goal/visited channels each sum to 1.0
+B3-02	build_global_obs wall features match bitmask	unit	high	Wall feature channels correctly decompose bitmask values into per-direction floats	Channel values match expected N/E/S/W decomposition
+B3-03	PolicyHandler rejects non-/policy path	unit	high	POST to unknown path returns 404 Not Found	errors==[(404,'Not Found')]
+B3-04	PolicyHandler rejects empty body	unit	high	Empty request body returns 400 Empty body	errors==[(400,'Empty body')]
+B3-05	PolicyHandler rejects invalid JSON	unit	high	Malformed JSON body returns 400 Invalid JSON	errors==[(400,'Invalid JSON')]
+B3-06	PolicyHandler rejects mismatched walls length	unit	high	walls array length != width*height returns 400	errors==[(400,...)]
+B3-07	PolicyHandler returns valid action JSON	unit	high	Well-formed request with mocked agent returns 200 with action 0-3	responses==[200], action in {0,1,2,3}
+B3-08	reset with explicit seed is deterministic	unit	high	Two resets with same explicit seed produce identical observations	np.array_equal(obs1, obs2)
+B3-09	goal-reaching step returns done and success	unit	high	Stepping onto goal cell sets done=True and info['success']=True	done==True, success==True, steps==2
+B3-10	PolicyNetwork forward is deterministic under no_grad	unit	medium	Two forward passes with identical input produce identical logits	torch.equal(logits1, logits2)
+B3-11	different seeds produce different wall grids	smoke	high	Two mazes with different seeds have at least one wall byte difference	not np.array_equal(walls1, walls2)
+B3-12	evaluate_greedy runs without error	smoke	high	evaluate_greedy runs 5 held-out mazes and returns valid float metrics	0 <= success_rate <= 100, avg_eff is float
+B3-13	prefill_expert_buffer fills correct count	smoke	high	prefill_expert_buffer populates buffer with expected number of labels	count > 0, len(buffer) == count
+B3-14	logging server health endpoint returns ok	integration	high	GET /health over mTLS returns {"ok":true}	status==200, ok==True
+B3-15	POST move telemetry returns ok	integration	high	POST /move with valid telemetry JSON over mTLS returns {"ok":true}	status==200, ok==True
+B3-16	GET moves returns expected fields	integration	high	GET /moves?limit=1 returns JSON with ok, moves, count fields	status==200, moves is list, count present
+B3-17	POST mission returns ok with key	integration	high	POST /mission with valid JSON returns {"ok":true,"key":...}	status==200, ok==True, key present
+B3-18	GET mission retrieves posted mission	integration	high	POST then GET /mission?mission_id=... returns matching mission data	mission_id matches, ok==True
+B3-19	connection without client cert is rejected	integration	high	mTLS enforcement: GET /moves without client cert → HTTP 403 or SSL error	HTTPError 403 or SSLError
+B3-20	policy server returns valid action	integration	high	POST /policy with valid maze observation returns {"action": 0-3}	status==200, action in {0,1,2,3}
+B3-21	policy server rejects invalid JSON	integration	high	POST /policy with malformed JSON returns 400	HTTPError with code 400
+B3-22	policy server wrong path returns 404	integration	high	POST /notfound returns 404	HTTPError with code 404
+B3-23	telemetry round-trip POST then GET	system	high	POST a move to logging server then GET it back and verify fields match	Retrieved move matches posted data
+B3-24	mission round-trip POST then GET	system	high	POST mission summary then GET it back and verify all fields match	All mission fields match posted values
+B3-25	policy-guided maze solve	system	high	Send maze state to AI server, receive action, apply in MazeEnv, repeat	Loop completes without error, steps > 0
+B3-26	multi-move session filtered retrieval	system	high	POST 5 moves with same session_id, GET filtered, verify count==5	len(matched)==5
+B3-27	create and free 1000 mazes no crash	stress	high	Create and immediately free 1000 mazes in a loop	No crash, no assertion failure
+B3-28	1000 A* solves all valid	stress	high	Run 1000 A* solves on different seeds, verify every path is legal	All paths end at goal with legal steps
+B3-29	burst 10 concurrent telemetry POSTs	stress	low	Burst 10 concurrent telemetry POSTs to logging server (3 workers, retry on 500)	At least 9/10 return status 200
+B3-30	burst 20 concurrent policy requests	stress	low	Burst 20 concurrent policy requests to AI server	All 20 return valid actions 0-3
+B3-31	benchmark maze create+destroy	stress (benchmark)	medium	Measure avg time for maze create+destroy over 500 iterations (21x15)	Prints µs/iter, completes under 30s
+B3-32	benchmark A* solve	stress (benchmark)	medium	Measure avg time for A* solve over 500 iterations (21x15)	Prints µs/iter, completes under 30s
+B3-33	benchmark BFS distance map	stress (benchmark)	medium	Measure avg time for BFS distance map over 500 iterations (21x15)	Prints µs/iter, completes under 30s
+B3-34	benchmark train_step latency	stress (benchmark)	medium	Measure avg time for DAggerAgent train_step over 100 gradient steps	Prints ms/step, completes under 60s
+B3-35	benchmark select_action latency	stress (benchmark)	medium	Measure avg time for select_action inference over 1000 calls	Prints µs/call, completes under 30s
