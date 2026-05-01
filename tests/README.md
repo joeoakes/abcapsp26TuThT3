@@ -1,7 +1,7 @@
 # Testing
 
 ## Setup
-First, follow the usual steps to set up the logging and AI servers:
+First, follow the usual steps to set up the logging and AI servers (only needed for running remote tests):
 
 1. Ubuntu/Unix terminal #1:
 	1. `ssh -L 27017:127.0.0.1:27017 cep5603@10.170.8.130` (replace my username)
@@ -20,10 +20,22 @@ First, follow the usual steps to set up the logging and AI servers:
 From the local client:
 
 ### Pytest (local) tests
-`python -m pytest tests/python/ maze/ -m "remote" --tb=short`
+```bash
+python -m pytest tests/python/ maze/ -m "not remote" --tb=short
+```
+
+![Local tests](not_remote_tests_image.png)
 
 ### Pytest (remote) tests
-`python -m pytest tests/python/ maze/ -m "remote" --tb=short`
+```bash
+python -m pytest tests/python/ maze/ -m "remote" --tb=short
+```
+
+![Remote tests](remote_tests_image.png)
 
 ### Unity (local) tests
-`tests/c/./test_maze_lib`
+```bash
+tests/c/./test_maze_lib
+```
+
+![Unity tests](unity_tests.png)
